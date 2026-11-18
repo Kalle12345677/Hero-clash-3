@@ -11,7 +11,6 @@ import pg from 'pg';
 import { Server } from 'socket.io';
 
 const { Pool } = pg;
-const __dirname = import.meta.dirname;
 const standalone = process.argv[1] && path.basename(process.argv[1]) === 'server.js'
   && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
 if (standalone) {
@@ -490,11 +489,11 @@ app.delete('/api/friends/:friendId', authenticate, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/index.html', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/app.js', (_req, res) => res.sendFile(path.join(__dirname, 'app.js')));
-app.get('/styles.css', (_req, res) => res.sendFile(path.join(__dirname, 'styles.css')));
-app.get('/sw.js', (_req, res) => res.sendFile(path.join(__dirname, 'sw.js'), { headers: { 'Service-Worker-Allowed': '/' } }));
+app.get('/', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'index.html')));
+app.get('/index.html', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'index.html')));
+app.get('/app.js', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'app.js')));
+app.get('/styles.css', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'styles.css')));
+app.get('/sw.js', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'sw.js'), { headers: { 'Service-Worker-Allowed': '/' } }));
 
 io.use(async (socket, next) => {
   try {
@@ -730,7 +729,7 @@ app.get('/healthz', async (_req, res) => {
 
 async function startStandalone() {
   connectDatabase(process.env.DATABASE_URL);
-  const schemaPath = path.join(__dirname, 'netlify', 'database', 'migrations', '0001_hero_clash.sql');
+  const schemaPath = path.join(import.meta.dirname, 'netlify', 'database', 'migrations', '0001_hero_clash.sql');
   const sql = await readFile(schemaPath, 'utf8');
   await pool.query(sql);
   server.listen(PORT, '0.0.0.0', () => console.log('Hero Clash listening on port ' + PORT));
