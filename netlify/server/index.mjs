@@ -1,6 +1,6 @@
 import { getConnectionString } from '@netlify/database';
-import game from '../../server.js';
+import { server, connectDatabase } from '../../server.js';
 
-game.connectDatabase(getConnectionString(), { secureCookies: process.env.NETLIFY_DEV !== 'true' });
+connectDatabase(getConnectionString(), { secureCookies: process.env.NETLIFY_DEV !== 'true' });
 
-export default game.server;
+export default server;

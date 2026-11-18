@@ -2,17 +2,16 @@
   "name": "hero-clash",
   "version": "1.0.0",
   "private": true,
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "start": "node server.js",
     "build": "node scripts/build.mjs"
   },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=20.12.0" },
   "dependencies": {
     "@netlify/database": "^2.0.3",
     "bcryptjs": "^3.0.2",
     "cookie": "^1.0.2",
-    "dotenv": "^16.4.7",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.16.3",

@@ -1,15 +1,26 @@
-'use strict';
+import path from 'node:path';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+import express from 'express';
+import * as cookie from 'cookie';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import pg from 'pg';
+import { Server } from 'socket.io';
 
-require('dotenv').config();
-const path = require('node:path');
-const http = require('node:http');
-const crypto = require('node:crypto');
-const express = require('express');
-const cookie = require('cookie');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
-const { Server } = require('socket.io');
+const { Pool } = pg;
+const __dirname = import.meta.dirname;
+const standalone = process.argv[1] && path.basename(process.argv[1]) === 'server.js'
+  && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+if (standalone) {
+  try {
+    process.loadEnvFile('.env');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+}
 
 const PORT = Number(process.env.PORT) || 10000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -720,13 +731,13 @@ app.get('/healthz', async (_req, res) => {
 async function startStandalone() {
   connectDatabase(process.env.DATABASE_URL);
   const schemaPath = path.join(__dirname, 'netlify', 'database', 'migrations', '0001_hero_clash.sql');
-  const sql = await require('node:fs/promises').readFile(schemaPath, 'utf8');
+  const sql = await readFile(schemaPath, 'utf8');
   await pool.query(sql);
   server.listen(PORT, '0.0.0.0', () => console.log('Hero Clash listening on port ' + PORT));
 }
 
-module.exports = { server, connectDatabase };
-if (require.main === module) {
+export { server, connectDatabase };
+if (standalone) {
   startStandalone().catch(error => {
     console.error('Hero Clash could not start:', error.message);
     process.exit(1);

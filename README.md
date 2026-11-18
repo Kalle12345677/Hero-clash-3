@@ -21,7 +21,7 @@ Mobiles Browser-Arena-Spiel mit Konten, gespeicherten Profilen, Freundschaftsanf
 
 ## Lokal starten
 
-Benötigt Node.js 20 oder neuer sowie eine erreichbare PostgreSQL-Datenbank.
+Benötigt Node.js ab 20.12 sowie eine erreichbare PostgreSQL-Datenbank.
 
 1. `npm install`
 2. `DATABASE_URL` auf die PostgreSQL-Verbindungsadresse setzen.
