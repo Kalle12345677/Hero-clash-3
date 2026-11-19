@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const socketIo = path.dirname(require.resolve('socket.io/package.json'));
 
 await mkdir(path.join(output, 'socket.io'), { recursive: true });
-for (const file of ['index.html', 'styles.css', 'app.js', 'sw.js']) {
+for (const file of ['index.html', 'styles.css', 'app.js', 'equipment.js', 'sw.js']) {
   await copyFile(path.join(root, file), path.join(output, file));
 }
 await copyFile(

@@ -33,7 +33,7 @@ Die Datenbanktabellen werden beim Start automatisch angelegt. Für lokale Tests 
 
 ## Auf Netlify veröffentlichen
 
-1. Lade die Projektdateien in ein GitHub-Repository hoch. In der obersten Ebene liegen `index.html`, `app.js`, `styles.css`, `sw.js`, `server.js`, `package.json`, `package-lock.json` und `netlify.toml`. Übernimm auch die Ordner `netlify/` und `scripts/` mit ihrem Inhalt. Falls du das Upload-ZIP verwendest, entpacke es vor dem Hochladen. Eine persönliche `.env` bleibt auf deinem Rechner.
+1. Lade die Projektdateien in ein GitHub-Repository hoch. In der obersten Ebene liegen `index.html`, `app.js`, `equipment.js`, `styles.css`, `sw.js`, `server.js`, `package.json`, `package-lock.json` und `netlify.toml`. Übernimm auch die Ordner `netlify/` und `scripts/` mit ihrem Inhalt. Falls du das Upload-ZIP verwendest, entpacke es vor dem Hochladen. Eine persönliche `.env` bleibt auf deinem Rechner.
 2. Wähle in Netlify **Add new project → Import an existing project → GitHub** und dann das Repository. Verwende ein Team mit einem Credit-Tarif. Falls du das Repository bereits mit Netlify verbunden hast, öffne das bestehende Projekt.
 3. Die Konfiguration im Repository setzt Node.js 24, den Build-Befehl `npm run build` und das Publish-Verzeichnis `dist`. Das Base directory bleibt bei einem Repository mit dieser Ordnerstruktur leer.
 4. Lege unter **Environment variables** den Schlüssel `JWT_SECRET` an. Für den Wert kannst du diese Befehle in **Windows PowerShell auf deinem PC** ausführen. Sie kopieren einen zufälligen Schlüssel in die Zwischenablage. Füge ihn in das Value-Feld ein. Wenn Netlify nach dem Scope fragt, wähle **Functions** oder **All scopes**. Behalte denselben Schlüssel für weitere Deploys, damit die Logins gültig bleiben.
@@ -55,7 +55,7 @@ Mehr zur [Serverkonfiguration](https://docs.netlify.com/build/server/configurati
 
 ### Steuerung und Offline-Spiel
 
-Auf Handy und iPad bewegst du dich mit dem linken Joystick. Ziehe den rechten Joystick zum Zielen und lass ihn zum Angreifen los. Am Computer bewegst du dich mit WASD oder den Pfeiltasten, zielst mit der Maus und greifst per Klick oder Leertaste an. Mit R lädst du nach, mit Umschalt weichst du aus.
+Auf Handy und iPad bewegst du dich mit dem linken Joystick. Tippe den rechten Joystick für einen Angriff auf den nächsten sichtbaren Gegner an. Ziehe ihn für den Zielkegel und lass ihn zum manuellen Angriff los. Am Computer bewegst du dich mit WASD oder den Pfeiltasten, zielst mit der Maus und greifst per Klick oder Leertaste an. Mit R lädst du nach, mit Umschalt weichst du aus.
 
 Öffne die Website einmal online und melde dich an, damit der Browser die Spieldateien und dein Profil lokal speichern kann. Das funktioniert auf einer HTTPS-Adresse oder lokal auf `localhost`. Solo-Fortschritt wird bei wiederhergestellter Verbindung mit demselben Konto synchronisiert. Spiele die laufende Solo-Runde zu Ende, wenn die Verbindung währenddessen zurückkehrt.
 

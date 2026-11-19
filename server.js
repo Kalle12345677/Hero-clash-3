@@ -1,3 +1,4 @@
+import { weapons, armors } from './equipment.js';
 import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -35,7 +36,7 @@ function connectDatabase(connectionString, { secureCookies = isProduction } = {}
 }
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { path: '/api/duel-live', addTrailingSlash: false });
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '48kb' }));
@@ -134,8 +135,9 @@ async function acceptedFriendIds(userId) {
   return result.rows.map(row => row.friend_id);
 }
 
-function publishPresence(userId, online) {
+function publishPresence(userId) {
   acceptedFriendIds(userId).then(ids => {
+    const online = connectedUsers.has(userId);
     for (const id of ids) io.to(accountRoom(id)).emit('friend:presence', { userId, online });
   }).catch(error => console.error('Presence update failed:', error.message));
 }
@@ -241,26 +243,16 @@ function makePlayer(account, socketId, start) {
   owned.add('Trainingsklinge');
   owned.add('Camp-Weste');
   owned.add('Camp-Stiefel');
-  const weaponConfig = {
-    'Trainingsklinge': {model:'sword',damage:11,crit:0,speed:1,range:.17,cooldown:620,mag:0,reserve:0,reload:0,splash:0},
-    'Kupfer-Säbel': {model:'sabre',damage:13,crit:.05,speed:1.05,range:.19,cooldown:520,mag:0,reserve:0,reload:0,splash:0},
-    'Sternenstab': {model:'staff',damage:10,crit:.12,speed:.92,range:.23,cooldown:700,mag:0,reserve:0,reload:0,splash:0},
-    'Mondlanze': {model:'spear',damage:16,crit:.08,speed:.86,range:.22,cooldown:780,mag:0,reserve:0,reload:0,splash:0},
-    'Impulsblaster': {model:'blaster',damage:18,crit:.08,speed:1,range:.8,cooldown:320,mag:8,reserve:48,reload:1250,splash:0},
-    'Splitterkanone': {model:'rifle',damage:10,crit:.05,speed:1.15,range:.9,cooldown:150,mag:24,reserve:144,reload:1700,splash:0},
-    'Kometenwerfer': {model:'launcher',damage:34,crit:.1,speed:.8,range:.72,cooldown:820,mag:4,reserve:24,reload:1900,splash:.15},
-  };
-  const requestedWeapon = Object.hasOwn(weaponConfig, profile.weapon) ? profile.weapon : 'Trainingsklinge';
-  const weapon = owned.has(requestedWeapon) ? requestedWeapon : 'Trainingsklinge';
-  const requestedArmor = ['Camp-Weste', 'Lederweste', 'Wächterpanzer', 'Schattenrüstung'].includes(profile.armor) ? profile.armor : 'Camp-Weste';
-  const armor = owned.has(requestedArmor) ? requestedArmor : 'Camp-Weste';
+  const selectedWeapon = weapons.find(item => item.name === profile.weapon && owned.has(item.name)) || weapons[0];
+  const selectedArmor = armors.find(item => item.name === profile.armor && owned.has(item.name)) || armors[0];
+  const weapon = selectedWeapon.name;
   const skillCaps = { health: 3, might: 3, precision: 3, dodge: 2, quickstep: 3, focus: 2, luck: 3, mastery: 2 };
   const skills = Object.fromEntries(Object.entries(skillCaps).map(([id, cap]) => [id, Math.max(0, Math.min(cap, Math.floor(Number(profile.skills?.[id]) || 0)))]));
-  const armorHp = { 'Lederweste': 18, 'Wächterpanzer': 36, 'Schattenrüstung': 22 }[armor] || 0;
+  const armorHp = selectedArmor.hp;
   const hp = (start.baseHp || 100) + skills.health * 15 + armorHp;
   const requestedBoots = ['Camp-Stiefel','Leichtstiefel','Sturmstiefel'].includes(profile.boots) ? profile.boots : 'Camp-Stiefel';
   const activeBoots = owned.has(requestedBoots) ? requestedBoots : 'Camp-Stiefel';
-  const selectedWeapon = weaponConfig[weapon];
+
   const safeCosmetics = profile.cosmetics && typeof profile.cosmetics === 'object' ? profile.cosmetics : {};
   const bodyModel = owned.has(safeCosmetics.body) ? ({ 'Sternen-Hoodie': 'hoodie', 'Nebeljacke': 'jacket' }[safeCosmetics.body] || 'shirt') : 'shirt';
   const feetModel = owned.has(safeCosmetics.feet) && ['Neon-Sneaker', 'Sternen-Schuhe'].includes(safeCosmetics.feet) ? 'shoes' : 'boots';
@@ -268,15 +260,15 @@ function makePlayer(account, socketId, start) {
   const faceModel = owned.has(safeCosmetics.face) && safeCosmetics.face === 'Cooler Blick' ? 'glasses' : '';
   return {
     userId: account.id, username: account.username, name: displayName(profile, account.username), socketId,
-    x: start.x, y: start.y, hp, maxHp: hp, armor: profile.armor,
+    x: start.x, y: start.y, hp, maxHp: hp, armor: selectedArmor.name,
     movementSpeed: activeBoots==='Sturmstiefel'?1.22:activeBoots==='Leichtstiefel'?1.12:1,
     bootsModel: activeBoots==='Sturmstiefel'?'storm':activeBoots==='Leichtstiefel'?'light':'standard',
-    armorModel: { 'Lederweste': 'leather', 'Wächterpanzer': 'plate', 'Schattenrüstung': 'shadow' }[armor] || 'vest',
+    armorModel: selectedArmor.model,
     bodyModel, feetModel, headModel, faceModel,
-    armorResist: { 'Lederweste': 0.08, 'Wächterpanzer': 0.17, 'Schattenrüstung': 0.1 }[armor] || 0,
+    armorResist: selectedArmor.resist, dodgeFactor: selectedArmor.dodgeFactor || 1,
     weapon, weaponModel: selectedWeapon.model, weaponDamage:selectedWeapon.damage, weaponSpeed:selectedWeapon.speed,
-    weaponRange:selectedWeapon.range, weaponCooldown:selectedWeapon.cooldown, weaponSplash:selectedWeapon.splash, weaponCrit:selectedWeapon.crit,
-    maxMagazine:selectedWeapon.mag, magazine:selectedWeapon.mag, ammo:selectedWeapon.reserve, reloadMs:selectedWeapon.reload, reloadingUntil:0,
+    weaponRange:selectedWeapon.range, weaponCooldown:selectedWeapon.cooldown*1000, weaponSplash:selectedWeapon.splash, weaponCrit:selectedWeapon.crit,
+    maxMagazine:(selectedWeapon.ammo?.mag || 0), magazine:(selectedWeapon.ammo?.mag || 0), ammo:(selectedWeapon.ammo?.reserve || 0), reloadMs:(selectedWeapon.ammo?.reload || 0)*1000*(selectedArmor.reloadFactor || 1), reloadingUntil:0,
     precision: skills.precision, might: skills.might, mastery: skills.mastery,
     dodgeSkill: skills.dodge + skills.quickstep * 0.4, hair: /^#[0-9a-f]{6}$/i.test(profile.hair || '') ? profile.hair : '#60483f',
     hairStyle: ['short', 'long', 'curls', 'bob', 'ponytail', 'sidecut'].includes(profile.hairStyle) ? profile.hairStyle : 'short',
@@ -490,7 +482,10 @@ app.delete('/api/friends/:friendId', authenticate, async (req, res) => {
 });
 
 app.get('/', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'index.html')));
+// Netlify serves this asset from dist; standalone uses Socket.IO's client.
+app.get('/socket.io/socket.io.js', (_req, res) => res.redirect(307, '/api/duel-live/socket.io.js'));
 app.get('/index.html', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'index.html')));
+app.get('/equipment.js', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'equipment.js')));
 app.get('/app.js', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'app.js')));
 app.get('/styles.css', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'styles.css')));
 app.get('/sw.js', (_req, res) => res.sendFile(path.join(import.meta.dirname, 'sw.js'), { headers: { 'Service-Worker-Allowed': '/' } }));
@@ -507,7 +502,7 @@ io.use(async (socket, next) => {
   } catch { next(new Error('Anmeldung abgelaufen.')); }
 });
 
-io.on('connection', async socket => {
+io.on('connection', socket => {
   const account = socket.account;
   const userId = account.id;
   const sockets = connectedUsers.get(userId) || new Set();
@@ -515,9 +510,17 @@ io.on('connection', async socket => {
   sockets.add(socket.id);
   connectedUsers.set(userId, sockets);
   socket.join(accountRoom(userId));
-  if (!wasOnline) publishPresence(userId, true);
-  const friendIds = await acceptedFriendIds(userId).catch(() => []);
-  socket.emit('friends:presence', friendIds.filter(id => connectedUsers.has(id)));
+  if (!wasOnline) publishPresence(userId);
+  async function sendRoster() {
+    try {
+      const ids = await acceptedFriendIds(userId);
+      if (socket.connected) socket.emit('friends:presence', ids.filter(id => connectedUsers.has(id)));
+    } catch {
+      socket.emit('friends:unavailable');
+    }
+  }
+  socket.on('friends:sync', sendRoster);
+  sendRoster();
 
   socket.on('friend:challenge', async (payload, reply = () => {}) => {
     const friendId = String(payload?.friendId || '');
@@ -529,16 +532,15 @@ io.on('connection', async socket => {
     if (!targetSockets?.size) return reply({ error: 'Dieser Freund ist gerade offline.' });
     if (activeMatches.has(userId)) return reply({ error: 'Du bist bereits in einer Runde.' });
     if (activeMatches.has(friendId)) return reply({ error: 'Dieser Freund ist bereits in einer Runde.' });
-    const targetSocketId = [...targetSockets].find(id => !io.sockets.sockets.get(id)?.matchId);
-    if (!targetSocketId) return reply({ error: 'Dieser Freund ist bereits in einer Runde.' });
     const id = crypto.randomUUID();
-    invites.set(id, { id, fromId: userId, toId: friendId, fromSocketId: socket.id, toSocketId: targetSocketId, fromName: displayName(account.profile, account.username), mode });
-    io.to(targetSocketId).emit('friend:challenge:incoming', { id, fromId: userId, fromName: displayName(account.profile, account.username), mode });
+    invites.set(id, { id, fromId: userId, toId: friendId, fromSocketId: socket.id, fromName: displayName(account.profile, account.username), mode });
+    io.to(accountRoom(friendId)).emit('friend:challenge:incoming', { id, fromId: userId, fromName: displayName(account.profile, account.username), mode });
     reply({ ok: true });
     setTimeout(() => {
       const invite = invites.get(id);
       if (invite) {
         invites.delete(id);
+        io.to(accountRoom(invite.toId)).emit('friend:challenge:closed', { id });
         io.to(invite.fromSocketId).emit('friend:challenge:expired');
       }
     }, 30000);
@@ -548,13 +550,16 @@ io.on('connection', async socket => {
     const invite = invites.get(String(payload?.id || ''));
     if (!invite || invite.toId !== userId) return;
     invites.delete(invite.id);
+    io.to(accountRoom(invite.toId)).emit('friend:challenge:closed', { id: invite.id });
     io.to(invite.fromSocketId).emit('friend:challenge:declined', { name: displayName(account.profile, account.username) });
   });
 
   socket.on('friend:challenge:accept', async (payload, reply = () => {}) => {
     const invite = invites.get(String(payload?.id || ''));
-    if (!invite || invite.toId !== userId || invite.toSocketId !== socket.id) return reply({ error: 'Diese Einladung ist nicht mehr gültig.' });
-    const hostSocket = io.sockets.sockets.get(invite.fromSocketId);
+    if (!invite || invite.toId !== userId) return reply({ error: 'Diese Einladung ist nicht mehr gültig.' });
+    const hostSocket = io.sockets.sockets.get(invite.fromSocketId) ||
+      [...(connectedUsers.get(invite.fromId) || [])].map(id => io.sockets.sockets.get(id)).find(peer => peer?.connected && !peer.matchId);
+    io.to(accountRoom(invite.toId)).emit('friend:challenge:closed', { id: invite.id });
     if (!hostSocket?.connected || hostSocket.matchId || socket.matchId || activeMatches.has(invite.fromId) || activeMatches.has(invite.toId)) {
       invites.delete(invite.id);
       return reply({ error: 'Der andere Spieler ist nicht mehr verfügbar.' });
@@ -681,7 +686,7 @@ io.on('connection', async socket => {
     if (!player || room.finished) return reply({ error: 'Runde ist nicht aktiv.' });
     const now = Date.now();
     if (now < player.dodgeReadyAt) return reply({ error: 'Ausweichen lädt noch auf.' });
-    player.dodgeReadyAt = now + Math.max(1100, 2100 - player.dodgeSkill * 250);
+    player.dodgeReadyAt = now + Math.max(1100, 2100 - player.dodgeSkill * 250) * player.dodgeFactor;
     player.dodgingUntil = now + 430;
     let direction = normalizedMove(payload);
     if (!direction.x && !direction.y) direction = player.move.x || player.move.y ? player.move : { x: player.x < 0.5 ? 1 : -1, y: 0 };
@@ -707,7 +712,7 @@ io.on('connection', async socket => {
     active?.delete(socket.id);
     if (active?.size === 0) {
       connectedUsers.delete(userId);
-      publishPresence(userId, false);
+      publishPresence(userId);
     }
     const room = pvpRooms.get(socket.matchId);
     if (room && !room.finished) {
@@ -729,9 +734,10 @@ app.get('/healthz', async (_req, res) => {
 
 async function startStandalone() {
   connectDatabase(process.env.DATABASE_URL);
-  const schemaPath = path.join(import.meta.dirname, 'netlify', 'database', 'migrations', '0001_hero_clash.sql');
-  const sql = await readFile(schemaPath, 'utf8');
-  await pool.query(sql);
+  for (const migration of ['0001_hero_clash.sql', '0002_duel_lobby.sql', '0003_ausruestung.sql']) {
+    const schemaPath = path.join(import.meta.dirname, 'netlify', 'database', 'migrations', migration);
+    await pool.query(await readFile(schemaPath, 'utf8'));
+  }
   server.listen(PORT, '0.0.0.0', () => console.log('Hero Clash listening on port ' + PORT));
 }
 

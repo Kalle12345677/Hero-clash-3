@@ -6,7 +6,7 @@
   NODE_VERSION = "24"
 
 [server]
-  path = ["/api/*", "/socket.io/*", "/healthz"]
+  path = ["/api/*", "/healthz"]
   region = "fra"
 
 # Friends, invitations and live matches share the memory of one instance.

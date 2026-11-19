@@ -1,3 +1,4 @@
+import { weapons, armors } from './equipment.js';
 const KEY = 'neon-camp-profile-v1';
 const ACTIVE_PROFILE_KEY = `${KEY}-active-account`;
 const PROGRESSION_VERSION = 2;
@@ -24,6 +25,8 @@ let syncRequest = null;
 let reconnecting = false;
 let closeDifficultyMenu = null;
 const friendData = { friends: [], incoming: [], outgoing: [], online: new Set(), loaded: false, loading: false };
+let arenaConnection = 'connecting';
+let rosterRefreshQueued = false;
 const leaderboardData = { players: [], loaded: false, loading: false, error: '' };
 let page = 'hub';
 let difficulty = 'normal';
@@ -42,21 +45,6 @@ const swatches = ['#60483f','#302b3f','#cb8b58','#ba5555','#4c817b','#8884bf','#
 const hairStyles = [{id:'short',name:'Kurz'},{id:'long',name:'Lang'},{id:'curls',name:'Locken'},{id:'bob',name:'Bob'},{id:'ponytail',name:'Zopf'},{id:'sidecut',name:'Seitenscheitel'}];
 const skinTones = [{id:'light',name:'Hell',colors:['#ffe7cf','#f5c9a8','#dba486']},{id:'warm',name:'Warm',colors:['#f3d0af','#dba47f','#b87c62']},{id:'olive',name:'Olive',colors:['#e8c99f','#c99f70','#9d704e']},{id:'deep',name:'Dunkel',colors:['#c88f6c','#9d674b','#704331']}];
 const makeupOptions = [{id:'natural',name:'Natürlich'},{id:'rosy',name:'Rosig'},{id:'liner',name:'Eyeliner'},{id:'freckles',name:'Sommersprossen'}];
-const weapons = [
-  { name:'Trainingsklinge', model:'sword', price:0, damage:11, crit:0, speed:1, range:.17, cooldown:.62, ammo:null, splash:0, desc:'Eine gut ausbalancierte Nahkampfwaffe für den Start.', owned:true },
-  { name:'Kupfer-Säbel', model:'sabre', price:90, damage:13, crit:.05, speed:1.05, range:.19, cooldown:.52, ammo:null, splash:0, desc:'Leicht und flink. Erhöht deine kritische Chance um 5 %.' },
-  { name:'Sternenstab', model:'staff', price:180, damage:10, crit:.12, speed:.92, range:.23, cooldown:.7, ammo:null, splash:0, desc:'Langer Stab für Nahkampftreffer mit erhöhter Kritchance.' },
-  { name:'Mondlanze', model:'spear', price:300, damage:16, crit:.08, speed:.86, range:.22, cooldown:.78, ammo:null, splash:0, desc:'Hohe Reichweite und kräftige Treffer.' },
-  { name:'Impulsblaster', model:'blaster', price:240, damage:18, crit:.08, speed:1, range:.8, cooldown:.32, ammo:{mag:8,reserve:48,reload:1.25}, splash:0, desc:'Präzise Schüsse mit sichtbarem Zielkegel und 8 Schuss im Magazin.' },
-  { name:'Splitterkanone', model:'rifle', price:390, damage:10, crit:.05, speed:1.15, range:.9, cooldown:.15, ammo:{mag:24,reserve:144,reload:1.7}, splash:0, desc:'Schnelle Salven, 24 Schuss pro Magazin.' },
-  { name:'Kometenwerfer', model:'launcher', price:520, damage:34, crit:.1, speed:.8, range:.72, cooldown:.82, ammo:{mag:4,reserve:24,reload:1.9}, splash:.15, desc:'Sprenggeschosse verursachen Flächenschaden. 4 Schuss pro Magazin.' },
-];
-const armors = [
-  { name:'Camp-Weste', model:'vest', price:0, hp:0, resist:0, desc:'Leichte Standardrüstung für den Trainingsplatz.', owned:true },
-  { name:'Lederweste', model:'leather', price:135, hp:18, resist:.08, desc:'+18 Leben und 8 % weniger erlittenen Schaden.' },
-  { name:'Wächterpanzer', model:'plate', price:270, hp:36, resist:.17, desc:'+36 Leben und 17 % weniger erlittenen Schaden.' },
-  { name:'Schattenrüstung', model:'shadow', price:340, hp:22, resist:.1, desc:'+22 Leben, 10 % Schadensschutz und ein dunkler Look.' },
-];
 const boots = [
   {name:'Camp-Stiefel',model:'boots',price:0,speed:1,desc:'Robuste Stiefel für den Start.',owned:true},
   {name:'Leichtstiefel',model:'light',price:125,speed:1.12,desc:'+12 % Bewegungstempo. Der Bonus gilt nur, wenn diese Rüstung angelegt ist.'},
@@ -92,13 +80,19 @@ const qdefs = [
   { id:'play', title:'Dabei sein', desc:'Sammle 40 XP in Runden.', icon:'✨', goal:40, reward:40, xp:14, kind:'coins' },
 ];
 const weaponQuests = [
-  { id:'first-blade', title:'Durchstarter', weapon:'Kupfer-Säbel', xp:30, goals:[{ stat:'knockouts', count:20, label:'Gegner besiegt' }] },
-  { id:'arena-training', title:'Feuertaufe', weapon:'Impulsblaster', xp:45, goals:[{ stat:'wins', count:5, label:'Solo-Runden gewonnen' }] },
-  { id:'star-keeper', title:'Sternenwacht', weapon:'Sternenstab', xp:65, goals:[{ stat:'knockouts', count:75, label:'Gegner besiegt' }] },
-  { id:'moon-guard', title:'Mondwache', weapon:'Mondlanze', xp:90, goals:[{ stat:'wins', count:14, label:'Solo-Runden gewonnen' }, { stat:'level', count:4, label:'Spielerlevel' }] },
-  { id:'hard-arena', title:'Harte Schule', weapon:'Splitterkanone', xp:120, goals:[{ stat:'hardWins', count:8, label:'Solo-Siege auf Schwer' }, { stat:'knockouts', count:150, label:'Gegner besiegt' }] },
-  { id:'three-arenas', title:'Meister der Arenen', weapon:'Kometenwerfer', xp:160, goals:[{ stat:'wins', count:24, label:'Solo-Runden gewonnen' }, { stat:'bossMaps', count:3, label:'Verschiedene Arenabosse besiegt' }] },
+  { id:'first-blade', title:'Durchstarter', reward:'Kupfer-Säbel', xp:30, goals:[{ stat:'knockouts', count:20, label:'Gegner besiegt' }] },
+  { id:'arena-training', title:'Feuertaufe', reward:'Impulsblaster', xp:45, goals:[{ stat:'wins', count:5, label:'Solo-Runden gewonnen' }] },
+  { id:'star-keeper', title:'Sternenwacht', reward:'Sternenstab', xp:65, goals:[{ stat:'knockouts', count:75, label:'Gegner besiegt' }] },
+  { id:'moon-guard', title:'Mondwache', reward:'Mondlanze', xp:90, goals:[{ stat:'wins', count:14, label:'Solo-Runden gewonnen' }, { stat:'level', count:4, label:'Spielerlevel' }] },
+  { id:'hard-arena', title:'Harte Schule', reward:'Splitterkanone', xp:120, goals:[{ stat:'hardWins', count:8, label:'Solo-Siege auf Schwer' }, { stat:'knockouts', count:150, label:'Gegner besiegt' }] },
+  { id:'three-arenas', title:'Meister der Arenen', reward:'Kometenwerfer', xp:160, goals:[{ stat:'wins', count:24, label:'Solo-Runden gewonnen' }, { stat:'bossMaps', count:3, label:'Verschiedene Arenabosse besiegt' }] },
 ];
+const armorQuests = [
+  {id:'wind-runner', title:'Mit dem Wind', reward:'Windläufer-Wams', xp:45, goals:[{stat:'wins', count:4, label:'Solo-Runden gewonnen'}]},
+  {id:'ember-watch', title:'Hüter der Glut', reward:'Glutwacht', xp:100, goals:[{stat:'bossMaps', count:2, label:'Verschiedene Arenabosse besiegt'}, {stat:'hardWins', count:3, label:'Solo-Siege auf Schwer'}]},
+];
+const gearQuests = [...weaponQuests, ...armorQuests];
+function rewardQuest(name) { return gearQuests.find(quest => quest.reward === name); }
 const passRewards = [
   { xp:150, item:'Wolkenmütze', title:'Wolkenmütze' },
   { xp:380, item:'Sternen-Schuhe', title:'Sternen-Schuhe' },
@@ -176,7 +170,7 @@ function mergeProfiles(base, local, remote) {
     return mine;
   }
   const combined = merge(base, local, remote);
-  const duplicateQuestXp = weaponQuests.reduce((sum, quest) => {
+  const duplicateQuestXp = gearQuests.reduce((sum, quest) => {
     const claimedTwice = local.weaponQuestClaims.includes(quest.id) && remote.weaponQuestClaims.includes(quest.id) && !base.weaponQuestClaims.includes(quest.id);
     return sum + (claimedTwice ? quest.xp : 0);
   }, 0);
@@ -241,10 +235,10 @@ function currentBoots(){ return boots.find(item=>item.name===profile?.boots&&pro
 function critChance(){ return Math.min(.65,.10+(arenaWeapon().crit||0)+(profile?.skills?.precision||0)*.04+(profile?.skills?.mastery||0)*.07); }
 function dodgeChance(){ return Math.min(.55,.10+(profile?.skills?.quickstep||0)*.04+(profile?.skills?.dodge||0)*.10); }
 function weaponSource(name) {
-  if (name === 'Trainingsklinge') return 'Startausrüstung';
+  if (['Trainingsklinge','Camp-Weste'].includes(name)) return 'Startausrüstung';
   const source = profile.weaponSources[name];
   if (source === 'shop') return 'Im Shop gekauft';
-  const quest = weaponQuests.find(entry => entry.id === source);
+  const quest = gearQuests.find(entry => entry.id === source);
   return quest ? 'Quest · ' + quest.title : 'Aus früherem Spielstand';
 }
 function showItemInfo(name) {
@@ -252,9 +246,9 @@ function showItemInfo(name) {
   const isWeapon=weapons.includes(item),isArmor=armors.includes(item),isBoot=boots.includes(item),art=isWeapon?weaponSvg(name):isArmor?armorSvg(name):isBoot?bootsSvg(name):cosmeticSvg(name);
   const stats=isWeapon?`<div class="detail-stats"><span>Schaden <b>${item.damage}</b></span><span>Kritchance <b>${Math.round((.10+item.crit)*100)} %</b></span><span>Cooldown <b>${item.cooldown}s</b></span><span>${item.ammo?`Magazin <b>${item.ammo.mag} · Reserve ${item.ammo.reserve}</b>`:`Tempo <b>${Math.round(item.speed*100)} %</b>`}</span>${item.splash?`<span>Flächenschaden <b>${Math.round(item.splash*100)} %</b></span>`:''}</div>`:isArmor?`<div class="detail-stats"><span>Zusatzleben <b>+${item.hp}</b></span><span>Schutz <b>${Math.round(item.resist*100)} %</b></span></div>`:isBoot?`<div class="detail-stats"><span>Bewegung <b>+${Math.round((item.speed-1)*100)} %</b></span><span>Wirkt nur angelegt <b>Ja</b></span></div>`:`<div class="detail-stats"><span>Typ <b>Kosmetik</b></span><span>Platz <b>${({head:'Kopf',face:'Gesicht',body:'Oberteil',feet:'Schuhe'})[item.slot]}</b></span></div>`;
   const owned=profile.owned.includes(name),kind=isWeapon?'weapon':isArmor?'armor':isBoot?'boots':'cosmetic';
-  const quest=isWeapon?weaponQuests.find(entry=>entry.weapon===name):null;
-  const overlay=document.createElement('div');overlay.className='overlay';overlay.innerHTML=`<section class="detail-modal item-detail"><button class="modal-close" data-close>×</button><div class="detail-art">${art}</div><div class="eyebrow">${isWeapon?'WAFFENINFO':isArmor?'RÜSTUNGSINFO':isBoot?'STIEFELINFO':'KLEIDUNGSINFO'}</div><h2>${clean(item.name)}</h2><p>${clean(item.desc)}</p>${stats}${isWeapon&&owned?`<p class="weapon-source"><b>Herkunft</b> · ${clean(weaponSource(name))}</p>`:''}<button class="button full" data-equip-info ${!owned&&profile.coins<item.price?'disabled':''}>${owned?(isWeapon?'Ausrüsten':isArmor?'Anlegen':isBoot?'Stiefel anlegen':'Anlegen'):`${item.price} ◈ · Kaufen`}</button>${quest?`<button class="button ghost full weapon-quest-link" data-open-weapon-quest>Quest ansehen · ${clean(quest.title)}</button>`:''}</section>`;
-  (document.querySelector('.app-shell')||document.body).append(overlay);overlay.querySelector('[data-close]').addEventListener('click',()=>overlay.remove());overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});overlay.querySelector('[data-equip-info]').addEventListener('click',()=>{if(!owned){buy(item.name,kind);overlay.remove();return;}if(isWeapon)profile.weapon=item.name;else if(isArmor)profile.armor=item.name;else if(isBoot)profile.boots=item.name;else profile.cosmetics[item.slot]=item.name;save();overlay.remove();render();toast(`${item.name} angelegt.`);});
+  const quest=rewardQuest(name);
+  const overlay=document.createElement('div');overlay.className='overlay';overlay.innerHTML=`<section class="detail-modal item-detail"><button class="modal-close" data-close>×</button><div class="detail-art">${art}</div><div class="eyebrow">${isWeapon?'WAFFENINFO':isArmor?'RÜSTUNGSINFO':isBoot?'STIEFELINFO':'KLEIDUNGSINFO'}</div><h2>${clean(item.name)}</h2><p>${clean(item.desc)}</p>${stats}${(isWeapon||isArmor)&&owned?`<p class="weapon-source"><b>Herkunft</b> · ${clean(weaponSource(name))}</p>`:''}${!owned&&quest?'':`<button class="button full" data-equip-info ${!owned&&profile.coins<item.price?'disabled':''}>${owned?(isWeapon?'Ausrüsten':isArmor?'Anlegen':isBoot?'Stiefel anlegen':'Anlegen'):`${item.price} ◈ · Kaufen`}</button>`}${quest?`<button class="button ghost full weapon-quest-link" data-open-weapon-quest>Quest ansehen · ${clean(quest.title)}</button>`:''}</section>`;
+  (document.querySelector('.app-shell')||document.body).append(overlay);overlay.querySelector('[data-close]').addEventListener('click',()=>overlay.remove());overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});overlay.querySelector('[data-equip-info]')?.addEventListener('click',()=>{if(!owned){buy(item.name,kind);overlay.remove();return;}if(isWeapon)profile.weapon=item.name;else if(isArmor)profile.armor=item.name;else if(isBoot)profile.boots=item.name;else profile.cosmetics[item.slot]=item.name;save();overlay.remove();render();toast(`${item.name} angelegt.`);});
   overlay.querySelector('[data-open-weapon-quest]')?.addEventListener('click',()=>{
     overlay.remove();
     go('quests');
@@ -300,7 +294,14 @@ function toast(message) {
   toastId = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
+// These silhouettes are shared by the item icons and arena fighters.
+const forgeDesigns = {
+  knife: [['#79472c','M47 35h6v15l-3 5-3-5Z'],['#f3ca6b','M45 36 49 16 61 5 55 30 52 37Z'],['#5d6573','M41 35l18-3 1 5-18 2Z']],
+  axe: [['#996f4e','M47 11h6v40l-3 4-3-4Z'],['#515b76','M36 8q-7 9-3 21 9 2 17-5 8 7 17 4 3-11-4-20-7 9-13 7-8 2-14-7Z'],['#aaaec6','M34 12q-4 9 0 15l4-2q-4-6-4-13Z']],
+  bow: [['#80563d','M46 16h8l-1 33-3 6-4-5Z'],['#708f99','M28 35q1-19 20-24h4q19 5 20 24l-6-7q-6-10-16-11-10 1-16 11Z'],['#d2c7ac','M29 32l21 7 21-7-21 10Z'],['#b3cdd2','M49 35V12l-3 3 4-12 4 12-3-3v23Z']]
+};
 function weaponParts(model) {
+  if (forgeDesigns[model]) return forgeDesigns[model].map(([color,d]) => `<path fill="${color}" d="${d}" stroke="#3e4048" stroke-width="1.5" stroke-linejoin="round"/>`).join('');
   if(model==='blaster') return '<path d="M28 47h30l8 8h16v12H57l-8 6-10-6H28Z" fill="#53677c" stroke="#263746" stroke-width="4"/><path d="M32 51h25v7H32Z" fill="#b9e5e8"/><path d="m43 68 12 2-5 18H37Z" fill="#394453" stroke="#263746" stroke-width="3"/><path d="M76 57h12v9H76Z" fill="#e0c77e"/><circle cx="70" cy="61" r="4" fill="#f5fcff"/>';
   if(model==='rifle') return '<path d="M15 46h48l10 7h15v10H63l-9 7H34l-6-7H15Z" fill="#4d5968" stroke="#242a31" stroke-width="4"/><path d="M20 50h42v6H20Z" fill="#cbd5df"/><path d="m39 67 15 2-5 16H38Z" fill="#303b49" stroke="#242a31" stroke-width="3"/><path d="M61 45v-8h15v8" fill="#8ec2d4" stroke="#526274" stroke-width="3"/><path d="M20 60h-8" stroke="#e7cf85" stroke-width="4"/>';
   if(model==='launcher') return '<path d="M20 42h48l13 8v18l-13 8H20Z" fill="#795c42" stroke="#473b30" stroke-width="4"/><path d="M25 47h40v26H25Z" fill="#9f7953"/><path d="M65 50h18v18H65Z" fill="#e1aa63" stroke="#734f33" stroke-width="3"/><path d="m38 72 18 2-5 13H39Z" fill="#394453" stroke="#263746" stroke-width="3"/><path d="M34 54h23m-23 7h23" stroke="#e6d49d" stroke-width="3"/>';
@@ -322,9 +323,12 @@ function cosmeticSvg(name, cls='') {
   const art=model==='hat'?'<path d="M25 59q4-31 25-31t25 31H25Z" fill="#d8e1e9" stroke="#758391" stroke-width="3"/><path d="M20 57h60v13H20q-8-6 0-13Z" fill="#738393"/><path d="M38 47q12-9 24 0" fill="none" stroke="#fff" stroke-width="3"/>':model==='shoes'?'<path d="M25 30h23v23q7 8 24 11 9 3 7 13H22q-7-5 1-13l5-10Z" fill="#788a9c" stroke="#425164" stroke-width="3"/><path d="M25 66h51" stroke="#f6f7f8" stroke-width="5"/><path d="m44 48 9 7" stroke="#d5e0e7" stroke-width="3"/><path d="m39 58 4-5 4 5-4 5z" fill="#fff"/>':model==='glasses'?'<path d="M16 40h17l5 6h24l5-6h17l-4 22q-2 8-11 8H48q-9 0-11-8l-2-12-3 12q-2 8-11 8h-2q-8 0-10-8Z" fill="#384452" stroke="#9ba9b7" stroke-width="4"/><path d="M42 49h17" stroke="#c4d0db" stroke-width="4"/>':model==='crown'?'<path d="m23 70 4-38 18 18 9-28 12 28 14-18 5 38Z" fill="#d9c887" stroke="#967d48" stroke-width="3"/><path d="M24 70h60v9H24z" fill="#927847"/><circle cx="50" cy="61" r="5" fill="#f7f4df"/>':model==='jacket'?'<path d="m31 23 19 9 19-9 18 17-13 14-3 30H29l-3-30-13-14Z" fill="#b6c1cb" stroke="#566475" stroke-width="3"/><path d="m40 35 10 10 10-10M50 44v28" fill="none" stroke="#f2f3f3" stroke-width="3"/><path d="m72 37 5 5-5 5-5-5z" fill="#777f89"/>':'<path d="m31 23 19 9 19-9 18 17-13 14-3 30H29l-3-30-13-14Z" fill="#697c90" stroke="#415064" stroke-width="3"/><path d="m40 35 10 10 10-10M50 44v28" fill="none" stroke="#eef2f5" stroke-width="3"/><path d="m72 37 5 5-5 5-5-5z" fill="#e5d495"/>';
   return `<svg class="${cls}" viewBox="0 0 100 100" role="img" aria-label="${clean(name)}"><defs><linearGradient id="cloth" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#ccd5dd"/></linearGradient></defs><circle cx="50" cy="51" r="43" fill="var(--icon-back,#eef0f3)"/>${art}</svg>`;
 }
+function forgeArmorArt(armor) {
+  return `<path d="m26 24 14 4 10 8 10-8 14-4 13 17-11 15-6 26-20 8-20-8-6-26-11-15Z" fill="${armor.color}" stroke="#454654" stroke-width="3"/><path d="m28 42 22 14 22-14m-39 19 17 9 17-9" fill="none" stroke="#eee6cf" stroke-width="3"/><path d="m50 38 6 7-6 9-6-9Z" fill="#f6dfac"/>`;
+}
 function armorSvg(name,cls=''){
   const armor=armors.find(item=>item.name===name)||armors[0];
-  const shape=armor.model==='plate'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#a8b2bd" stroke="#687480" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#eef1f4" stroke-width="4"/><path d="m27 36-10 15 14 5m42-20 10 15-14 5" fill="#818d99" stroke="#626e79" stroke-width="3"/><circle cx="50" cy="63" r="6" fill="#d4c27c"/>':armor.model==='shadow'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#3a3d45" stroke="#1e2025" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#9299a3" stroke-width="3"/><path d="m27 36-10 15 14 5m42-20 10 15-14 5" fill="#555962" stroke="#27292e" stroke-width="3"/>':armor.model==='leather'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#8b6650" stroke="#624839" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#d3b28c" stroke-width="3"/><path d="m27 36-10 15 14 5m42-20 10 15-14 5" fill="#a4785b" stroke="#624839" stroke-width="3"/>':'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#d5dce2" stroke="#87929d" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#a3aeb9" stroke-width="3"/>';
+  const shape=armor.color?forgeArmorArt(armor):armor.model==='plate'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#a8b2bd" stroke="#687480" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#eef1f4" stroke-width="4"/><path d="m27 36-10 15 14 5m42-20 10 15-14 5" fill="#818d99" stroke="#626e79" stroke-width="3"/><circle cx="50" cy="63" r="6" fill="#d4c27c"/>':armor.model==='shadow'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#3a3d45" stroke="#1e2025" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#9299a3" stroke-width="3"/><path d="m27 36-10 15 14 5m42-20 10 15-14 5" fill="#555962" stroke="#27292e" stroke-width="3"/>':armor.model==='leather'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#8b6650" stroke="#624839" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#d3b28c" stroke-width="3"/><path d="m27 36-10 15 14 5m42-20 10 15-14 5" fill="#a4785b" stroke="#624839" stroke-width="3"/>':'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#d5dce2" stroke="#87929d" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#a3aeb9" stroke-width="3"/>';
   return `<svg class="${cls}" viewBox="0 0 100 100" role="img" aria-label="${clean(name)}"><circle cx="50" cy="51" r="43" fill="var(--icon-back,#eef0f3)"/>${shape}</svg>`;
 }
 function hairSvg(style,color){
@@ -357,7 +361,7 @@ function avatarSvg(sizeClass='') {
   const style=hairStyles.some(item=>item.id===profile?.hairStyle)?profile.hairStyle:'short',hairShape=hairSvg(style,hair);
   const torso=bodyName==='Sternen-Hoodie'?'url(#hoodie)':bodyName==='Nebeljacke'?'url(#steel)':'url(#shirt)';
   const armorModel=armors.find(item=>item.name===profile?.armor)?.model||'vest';
-  const armorGraphic=armorModel==='vest'?'':`<g transform="translate(64 132) scale(.72)">${armorModel==='plate'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#a8b2bd" stroke="#687480" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#eef1f4" stroke-width="4"/>':armorModel==='shadow'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#3a3d45" stroke="#1e2025" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#9299a3" stroke-width="3"/>':'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#8b6650" stroke="#624839" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#d3b28c" stroke-width="3"/>'}</g>`;
+  const armorGraphic=armorModel==='vest'?'':`<g transform="translate(64 132) scale(.72)">${currentArmor().color?forgeArmorArt(currentArmor()):armorModel==='plate'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#a8b2bd" stroke="#687480" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#eef1f4" stroke-width="4"/>':armorModel==='shadow'?'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#3a3d45" stroke="#1e2025" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#9299a3" stroke-width="3"/>':'<path d="m30 25 20 9 20-9 16 16-12 14-4 31H30l-4-31-12-14Z" fill="#8b6650" stroke="#624839" stroke-width="4"/><path d="m39 39 11 10 11-10M50 50v26" fill="none" stroke="#d3b28c" stroke-width="3"/>'}</g>`;
   const headwear=headName==='Wolkenmütze'?'<path d="M66 81q2-36 34-36t34 36z" fill="url(#hat)" stroke="#788492" stroke-width="3"/><path d="M61 78h78q7 0 7 8v5H61q-8-5 0-13Z" fill="#8795a1"/><path d="M82 66q18-12 36 0" fill="none" stroke="#fff" stroke-width="4"/>':headName==='Mondkrone'?'<path d="m69 79 4-29 16 15 11-28 12 28 17-15 3 29Z" fill="#d9c887" stroke="#967d48" stroke-width="3"/><path d="M68 79h66v8H68z" fill="#927847"/><circle cx="100" cy="72" r="5" fill="#fff"/>':'';
   const shoes=feetName==='Neon-Sneaker'||feetName==='Sternen-Schuhe'?'url(#sneaker)':'url(#boot)';
   const glasses=profile?.cosmetics?.face==='Cooler Blick'?'<rect x="75" y="96" width="22" height="12" rx="5" fill="#293044"/><rect x="103" y="96" width="22" height="12" rx="5" fill="#293044"/><path d="M97 101h6" stroke="#293044" stroke-width="3"/>':'';
@@ -411,7 +415,7 @@ function loginScreen() {
 function pageShell(content) {
   const nav = [ ['hub','Start'],['inventory','Inventar'],['quests','Quests'],['skills','Skillbaum'],['shop','Shop'],['friends','Freunde'],['leaderboard','Rang'],['settings','Einst.'] ];
   const active = page==='customize' ? 'settings' : page;
-  return `<div class="app-shell ${page==='match'?'in-round':''}" data-theme="${profile.theme||'light'}"><header class="topbar"><button class="brand" data-page="hub" aria-label="Zur Startseite"><div class="brand-mark">HC</div><div><div class="brand-name">HERO CLASH</div><div class="brand-sub">ARENA · SAISON 01</div></div></button>
+  return `<div class="app-shell ${page==='match'?'in-round':''}" data-motion="${profile.reducedMotion ? 'reduced' : 'full'}" data-theme="${profile.theme||'light'}"><header class="topbar"><button class="brand" data-page="hub" aria-label="Zur Startseite"><div class="brand-mark">HC</div><div><div class="brand-name">HERO CLASH</div><div class="brand-sub">ARENA · SAISON 01</div></div></button>
     <div class="top-actions">${offlineMode?'<span class="offline-pill">OFFLINE</span>':''}<div class="level-chip" aria-label="Level ${profile.level}"><span class="level-gem">✦</span><span>${profile.level}</span></div><div class="wallet" aria-label="Münzen"><span class="wallet-icon">◈</span><span>${profile.coins}</span></div><button class="profile-chip" data-page="settings" aria-label="Einstellungen"><span class="mini-face">${profile.face}</span><span>${clean(profile.name)}</span></button></div></header>
     <main class="main">${content}</main>
     <nav class="bottom-nav ${page==='match'?'is-hidden':''}" aria-label="Hauptmenü">${nav.map(([id,label]) => `<button class="nav-item ${active===id?'active':''}" data-page="${id}"><span class="nav-icon">${icons[id]}</span><span>${label}</span></button>`).join('')}</nav>
@@ -429,7 +433,7 @@ function progressCard() {
 
 function hubPage() {
   return `<section class="home-screen"><div class="home-copy"><div class="eyebrow">DEIN HELD · LEVEL ${profile.level}</div><h1>${clean(profile.name)}</h1></div>
-    <div class="home-stage"><div class="stage-glow"></div><div class="stage-ring"></div><div class="stage-floor"></div>${avatarSvg('home-character')}</div>
+    <div class="home-stage"><div class="stage-backdrop" aria-hidden="true"></div><div class="stage-glow"></div><div class="stage-ring"></div><div class="stage-floor"></div>${avatarSvg('home-character')}</div>
     <div class="home-play-row"><button class="button play-button" data-action="start-round"><span class="play-triangle">▶</span> SPIELEN</button><button class="button difficulty-button" data-action="open-difficulty" aria-haspopup="menu" aria-expanded="false"><span>${difficultyName()}</span><span class="difficulty-caret" aria-hidden="true"></span></button></div>
   </section>`;
 }
@@ -478,7 +482,7 @@ function matchPage() {
       </div>
       <div class="aim-joystick-area" id="aim-joystick-area" aria-label="Zielen und beim Loslassen angreifen"><div class="joystick-base aim-base"><div class="joystick-knob" id="aim-joystick-knob"></div></div><small>ZIELEN</small></div>
     </div>
-    <div class="arena-note">Rechten Joystick ziehen und zum Angriff loslassen.</div></section>
+    <div class="arena-note">Tippen: automatisch angreifen. Ziehen und loslassen: selbst zielen.</div></section>
     <div class="arena-exit"><button class="button ghost small" data-action="leave-round">${pvp?'Kampf verlassen':'Runde beenden'}</button></div>`;
 }
 
@@ -500,7 +504,7 @@ function inventoryItem(item,kind) {
   const equipped=kind==='weapon'?profile.weapon===item.name:kind==='armor'?profile.armor===item.name:kind==='boots'?profile.boots===item.name:profile.cosmetics[item.slot]===item.name;
   const art=kind==='weapon'?weaponSvg(item.name):kind==='armor'?armorSvg(item.name):kind==='boots'?bootsSvg(item.name):cosmeticSvg(item.name);
   const stats=kind==='weapon'?`${item.damage} SCHADEN · ${item.ammo?`${item.ammo.mag} SCHUSS · ${item.cooldown}s CD`:`${item.cooldown}s CD`} · KRIT ${Math.round((.1+item.crit)*100)}%`:kind==='armor'?`+${item.hp} HP · ${Math.round(item.resist*100)}% SCHUTZ`:kind==='boots'?`TEMPO +${Math.round((item.speed-1)*100)}%`:`${item.slot.toUpperCase()} · KOSMETISCH`;
-  return `<article class="item-card"><div class="item-art">${art}</div><div class="item-card-copy"><b>${clean(item.name)}</b><small>${stats}</small>${kind==='weapon'?`<small class="weapon-source">${clean(weaponSource(item.name))}</small>`:''}</div><div class="item-card-actions"><button class="icon-action" data-info="${clean(item.name)}" aria-label="Info zu ${clean(item.name)}">i</button><button class="button ${equipped?'equipped-button':'secondary'} small" data-equip="${clean(item.name)}" data-kind="${kind}">${equipped?'Angelegt':'Anlegen'}</button></div></article>`;
+  return `<article class="item-card"><div class="item-art">${art}</div><div class="item-card-copy"><b>${clean(item.name)}</b><small>${stats}</small>${(kind==='weapon'||kind==='armor')?`<small class="weapon-source">${clean(weaponSource(item.name))}</small>`:''}</div><div class="item-card-actions"><button class="icon-action" data-info="${clean(item.name)}" aria-label="Info zu ${clean(item.name)}">i</button><button class="button ${equipped?'equipped-button':'secondary'} small" data-equip="${clean(item.name)}" data-kind="${kind}">${equipped?'Angelegt':'Anlegen'}</button></div></article>`;
 }
 
 function questProgress(q) {
@@ -508,29 +512,32 @@ function questProgress(q) {
   if (q.id==='kills') return Math.min(profile.daily.kills, q.goal);
   return Math.min(Number(profile.daily.xp||0), q.goal);
 }
-function weaponQuestProgress(goal) {
+function gearQuestProgress(goal) {
   const value = goal.stat === 'level' ? profile.level : goal.stat === 'bossMaps' ? profile.stats.bossMaps.length : profile.stats[goal.stat];
   return Math.min(value, goal.count);
 }
-function weaponQuestCard(quest) {
-  const progress = quest.goals.map(goal => ({ ...goal, value: weaponQuestProgress(goal) }));
+function gearQuestCard(quest) {
+  const progress = quest.goals.map(goal => ({ ...goal, value: gearQuestProgress(goal) }));
   const claimed = profile.weaponQuestClaims.includes(quest.id);
   const complete = progress.every(goal => goal.value === goal.count);
-  const owned = profile.owned.includes(quest.weapon);
+  const owned = profile.owned.includes(quest.reward);
+  const armor = armorQuests.includes(quest);
   return `<article class="card weapon-quest-card ${complete&&!claimed?'quest-ready':''}" id="weapon-quest-${quest.id}">
-    <header class="weapon-quest-heading">${weaponSvg(quest.weapon)}<div><h3>${clean(quest.title)}</h3><p>${clean(quest.weapon)} · +${quest.xp} XP</p></div></header>
+    <header class="weapon-quest-heading">${armor?armorSvg(quest.reward):weaponSvg(quest.reward)}<div><h3>${clean(quest.title)}</h3><p>${clean(quest.reward)} · +${quest.xp} XP</p></div></header>
     <ul class="weapon-goals">${progress.map(goal => `<li><div class="quest-goal-label"><span>${clean(goal.label)}</span><b>${goal.value} / ${goal.count}</b></div><div class="progress-line" role="progressbar" aria-label="${clean(goal.label)}" aria-valuemin="0" aria-valuenow="${goal.value}" aria-valuemax="${goal.count}"><span style="width:${goal.value/goal.count*100}%"></span></div></li>`).join('')}</ul>
     <footer class="weapon-quest-footer">
-      ${!claimed&&owned?'<small>Waffe bereits im Inventar</small>':''}
-      <button class="button ${complete&&!claimed?'':'ghost'} small" data-claim-weapon-quest="${quest.id}" ${complete&&!claimed?'':'disabled'}>${claimed?'Abgeholt':!complete?'Ziele offen':owned?'XP abholen':'Waffe abholen'}</button>
+      ${!claimed&&owned?'<small>Bereits im Inventar</small>':''}
+      <button class="button ${complete&&!claimed?'':'ghost'} small" data-claim-weapon-quest="${quest.id}" ${complete&&!claimed?'':'disabled'}>${claimed?'Abgeholt':!complete?'Ziele offen':owned?'XP abholen':armor?'Rüstung abholen':'Waffe abholen'}</button>
     </footer>
   </article>`;
 }
 function questsPage() {
   ensureDaily();
-  return `<h1>Quests</h1><p class="page-intro">Deine Waffenquests laufen dauerhaft. Sobald alle Ziele erfüllt sind, kannst du die Belohnung hier abholen.</p>
-  <section aria-labelledby="weapon-quests-title"><div class="section-heading"><h2 id="weapon-quests-title">Waffenquests</h2><span class="muted">${profile.weaponQuestClaims.length} / ${weaponQuests.length} abgeholt</span></div>
-  <div class="weapon-quest-grid">${weaponQuests.map(weaponQuestCard).join('')}</div></section>
+  return `<h1>Quests</h1><p class="page-intro">Waffen- und Rüstungsquests laufen dauerhaft. Sobald alle Ziele erfüllt sind, kannst du die Belohnung hier abholen.</p>
+  <section aria-labelledby="weapon-quests-title"><div class="section-heading"><h2 id="weapon-quests-title">Waffenquests</h2><span class="muted">${weaponQuests.filter(q=>profile.weaponQuestClaims.includes(q.id)).length} / ${weaponQuests.length} abgeholt</span></div>
+  <div class="weapon-quest-grid">${weaponQuests.map(gearQuestCard).join('')}</div></section>
+  <section aria-labelledby="armor-quests-title"><div class="section-heading"><h2 id="armor-quests-title">Rüstungsquests</h2><span class="muted">${armorQuests.filter(q=>profile.weaponQuestClaims.includes(q.id)).length} / ${armorQuests.length} abgeholt</span></div>
+  <div class="weapon-quest-grid">${armorQuests.map(gearQuestCard).join('')}</div></section>
   <div class="section-heading"><div><div class="eyebrow">${new Date().toLocaleDateString('de-DE',{day:'2-digit',month:'long'})}</div><h2>Tägliche Quests</h2></div></div>
   <div class="card-stack">${qdefs.map(q=>{const n=questProgress(q), claimed=profile.daily.claims.includes(q.id);return `<article class="card"><div class="quest-top"><div class="item-icon">${q.icon}</div><div class="item-copy"><h3>${q.title}</h3><p>${q.desc}</p></div><div class="quest-count">${n}/${q.goal}</div></div><div class="progress-line"><span style="width:${n/q.goal*100}%"></span></div><div class="card-row" style="margin-top:11px"><span class="quest-reward">+${q.reward} ◈ &nbsp; +${q.xp} XP</span><button class="button ${claimed?'ghost':''} small" data-claim-quest="${q.id}" ${n<q.goal||claimed?'disabled':''}>${claimed?'Abgeholt':'Belohnung holen'}</button></div></article>`}).join('')}</div>
   <div class="season-link card-row"><div><b>Battle Pass</b><small>Kosmetische Belohnungen aus dem Sternenpfad.</small></div><button class="button ghost small" data-page="pass">Ansehen ↗</button></div>
@@ -574,8 +581,8 @@ function passPage() {
 
 function shopPage() {
   return `<div class="eyebrow">Camp-Kiosk</div><h1>Shop</h1><p class="page-intro">Neue Waffen und Looks gegen deine gesammelten Münzen.</p>
-  <div class="section-heading" style="margin-top:0"><div><div class="eyebrow">ARENA-AUSRÜSTUNG</div><h2>Waffen</h2></div></div><div class="shop-grid">${weapons.map(w=>shopItem(w,'weapon')).join('')}</div>
-  <div class="section-heading"><div><div class="eyebrow">VERTEIDIGUNG · ECHTE WERTE</div><h2>Rüstungen</h2></div></div><div class="shop-grid armor-shop-grid">${armors.filter(item=>!profile.owned.includes(item.name)).map(item=>shopItem(item,'armor')).join('')}</div>
+  <div class="section-heading" style="margin-top:0"><div><div class="eyebrow">ARENA-AUSRÜSTUNG</div><h2>Waffen</h2></div></div><div class="shop-grid">${weapons.filter(w=>w.price>0&&!rewardQuest(w.name)).map(w=>shopItem(w,'weapon')).join('')}</div>
+  <div class="section-heading"><div><div class="eyebrow">VERTEIDIGUNG · ECHTE WERTE</div><h2>Rüstungen</h2></div></div><div class="shop-grid armor-shop-grid">${armors.filter(item=>!rewardQuest(item.name)&&!profile.owned.includes(item.name)).map(item=>shopItem(item,'armor')).join('')}</div>
   <div class="section-heading"><div><div class="eyebrow">AUSRÜSTUNG · TEMPO</div><h2>Stiefel</h2></div></div><div class="shop-grid armor-shop-grid">${boots.filter(item=>!profile.owned.includes(item.name)).map(item=>shopItem(item,'boots')).join('')}</div>
   <div class="section-heading"><div><div class="eyebrow">LOOKS · NUR KOSMETISCH</div><h2>Kleidung</h2></div></div><div class="shop-grid cosmetics-grid">${cosmetics.filter(c=>c.shop!==false&&!profile.owned.includes(c.name)).map(c=>shopItem(c,'cosmetic')).join('')}</div>
   <div class="season-link card-row"><div><b>Clash-Pass</b><small>Hol dir saisonale Looks mit deinen Runden-XP.</small></div><button class="button ghost small" data-page="pass">Ansehen ↗</button></div>`;
@@ -614,17 +621,23 @@ function settingsPage() {
 
 function friendsPage() {
   if(offlineMode)return `<div class="eyebrow">OFFLINE</div><h1>Freunde</h1><p class="page-intro">Freundesliste und 1-gegen-1 brauchen eine Internetverbindung. Du kannst gerade Solo spielen; deine Änderungen werden beim nächsten Online-Login synchronisiert.</p>`;
-  const friends=friendData.friends.map(friend=>{const online=friendData.online.has(friend.id);return `<article class="friend-card"><div class="friend-avatar">${clean((friend.name||friend.username).slice(0,1).toUpperCase())}</div><div class="friend-copy"><b>${clean(friend.name)}</b><small>@${clean(friend.username)} · <span class="presence ${online?'online':''}">${online?'Online':'Offline'}</span></small></div><button class="button ${online?'':'ghost'} small" data-challenge="${clean(friend.id)}" ${online?'':'disabled'}>1 vs 1</button></article>`;}).join('');
+  const ready = arenaConnection === 'ready' && socket?.connected;
+  const friends = friendData.friends.map(friend => {
+    const online = ready && friendData.online.has(friend.id);
+    const status = ready ? (online ? 'Duellbereit' : 'Offline') : 'Status ausstehend';
+    return `<article class="friend-card"><div class="friend-avatar">${clean((friend.name||friend.username).slice(0,1).toUpperCase())}</div><div class="friend-copy"><b>${clean(friend.name)}</b><small>@${clean(friend.username)} · <span class="presence ${online?'online':''}">${status}</span></small></div><button class="button ${online?'':'ghost'} small" data-challenge="${clean(friend.id)}" ${online?'':'disabled'}>1 vs 1</button></article>`;
+  }).join('');
   const incoming=friendData.incoming.map(friend=>`<article class="friend-card request-card"><div class="friend-avatar">${clean((friend.name||friend.username).slice(0,1).toUpperCase())}</div><div class="friend-copy"><b>${clean(friend.name)}</b><small>@${clean(friend.username)} · Anfrage</small></div><button class="button small" data-friend-accept="${clean(friend.id)}">Annehmen</button><button class="button ghost small" data-friend-decline="${clean(friend.id)}" aria-label="Anfrage ablehnen">×</button></article>`).join('');
   const outgoing=friendData.outgoing.map(friend=>`<article class="friend-card"><div class="friend-avatar muted-avatar">${clean((friend.name||friend.username).slice(0,1).toUpperCase())}</div><div class="friend-copy"><b>${clean(friend.name)}</b><small>@${clean(friend.username)} · Ausstehend</small></div><span class="request-pending">Gesendet</span></article>`).join('');
-  return `<div class="eyebrow">ZUSAMMEN SPIELEN</div><h1>Freunde</h1><p class="page-intro">Füge Freunde mit ihrem Benutzernamen hinzu. Lade online Freunde zu einem Live-1-gegen-1 ein.</p>
+  return `<header class="duel-lobby-title"><div><div class="eyebrow">MULTIPLAYER</div><h1>Duell-Lobby</h1></div><div class="lobby-emblem" aria-hidden="true">⚔</div></header>
     <label class="duel-mode-picker">Duellmodus<select id="duel-mode">${duelModes.map(mode=>`<option value="${mode.id}" ${duelMode===mode.id?'selected':''}>${mode.name} · ${mode.desc}</option>`).join('')}</select></label>
-    <form class="card friend-add-form" id="friend-add-form"><label class="field-label" for="friend-username">Freund hinzufügen</label><div class="friend-add-row"><input id="friend-username" class="name-input" name="username" maxlength="18" autocomplete="off" placeholder="Benutzername" required/><button class="button" type="submit">Anfrage senden</button></div><div class="friend-form-message" id="friend-form-message" aria-live="polite"></div></form>
-    <div class="friend-section-heading"><h2>Deine Freunde</h2><span>${friendData.friends.length} · ${[...friendData.online].filter(id=>friendData.friends.some(f=>f.id===id)).length} online</span></div>
-    <section class="card friend-list">${friendData.loading&&!friendData.loaded?'<div class="friend-empty">Freundesliste wird geladen …</div>':friends||'<div class="friend-empty">Noch keine Freunde. Suche oben nach ihrem Benutzernamen.</div>'}</section>
+    <div id="duel-roster"><div class="friend-section-heading"><h2>Deine Freunde</h2><span>${ready ? friendData.friends.filter(f=>friendData.online.has(f.id)).length+' online' : 'Live-Status ausstehend'}</span></div>
+    <div class="duel-line" role="status"><span class="duel-signal ${ready?'is-live':''}"></span>${ready?'Arena verbunden':arenaConnection==='unavailable'?'Arena gerade nicht erreichbar':'Arena verbindet …'}${!ready?'<button class="text-link" data-reconnect>Erneut verbinden</button>':''}</div>
+    <section class="card friend-list">${friendData.error ? `<div class="friend-empty">${clean(friendData.error)} <button class="text-link" data-retry-list>Neu laden</button></div>` : friendData.loading&&!friendData.loaded?'<div class="friend-empty">Freundesliste wird geladen …</div>':friends||'<div class="friend-empty">Gib unten einen Benutzernamen ein, um deinen ersten Freund hinzuzufügen.</div>'}</section>
     ${friendData.incoming.length?`<div class="friend-section-heading"><h2>Anfragen</h2><span>${friendData.incoming.length}</span></div><section class="card friend-list">${incoming}</section>`:''}
     ${friendData.outgoing.length?`<div class="friend-section-heading"><h2>Ausstehend</h2></div><section class="card friend-list">${outgoing}</section>`:''}
-    <div class="online-note friend-help"><span>⚔</span><span>1-gegen-1 startet per Einladung. Beide Spieler brauchen ein Konto und müssen gleichzeitig online sein.</span></div>`;
+    </div>
+    <form class="card friend-add-form" id="friend-add-form"><label class="field-label" for="friend-username">Freund hinzufügen</label><div class="friend-add-row"><input id="friend-username" class="name-input" name="username" maxlength="18" autocomplete="off" placeholder="Benutzername" required/><button class="button" type="submit">Anfrage senden</button></div><div class="friend-form-message" id="friend-form-message" aria-live="polite"></div></form>`;
 }
 
 function leaderboardPage(){
@@ -716,28 +729,84 @@ async function restoreSession() {
 }
 function setupSocket() {
   if (!window.io||!currentUser) return;
-  socket?.disconnect();socket=window.io();
-  socket.on('connect_error',error=>{if(currentUser)toast(error.message||'Verbindung zur Arena fehlgeschlagen.');});
-  socket.on('friends:presence',ids=>{friendData.online=new Set(ids||[]);if(page==='friends')render();});
-  socket.on('friend:presence',({userId,online})=>{if(online)friendData.online.add(userId);else friendData.online.delete(userId);if(page==='friends')render();});
+  if (socket?.heroAccount === currentUser.id) {
+    resumeArena();
+    return;
+  }
+  socket?.disconnect();
+  arenaConnection = 'connecting';
+  socket = window.io({ path:'/api/duel-live', addTrailingSlash:false, transports:['websocket','polling'], tryAllTransports:true, autoConnect:false });
+  socket.heroAccount = currentUser.id;
+  socket.on('connect', () => {
+    arenaConnection = 'connecting';
+    refreshFriends(true);
+    redrawRoster();
+  });
+  const unavailable = () => {
+    arenaConnection = 'unavailable';
+    friendData.online.clear();
+    redrawRoster();
+  };
+  socket.on('connect_error', unavailable);
+  socket.on('friends:unavailable', unavailable);
+  socket.on('friends:presence',ids=>{arenaConnection='ready';friendData.online=new Set(ids||[]);redrawRoster();});
+  socket.on('friend:presence',({userId,online})=>{if(online)friendData.online.add(userId);else friendData.online.delete(userId);redrawRoster();});
   socket.on('friends:refresh',()=>{friendData.loaded=false;refreshFriends(true);});
   socket.on('friend:challenge:incoming',invite=>showIncomingChallenge(invite));
-  socket.on('friend:challenge:expired',()=>{document.querySelector('#overlay-root').innerHTML='';toast('Die Einladung ist abgelaufen.');});
+  socket.on('friend:challenge:expired',()=>toast('Die Einladung ist abgelaufen.'));
+  socket.on('friend:challenge:closed', ({id}) => {
+    const invite = document.querySelector('[data-invite-id]');
+    if (invite?.dataset.inviteId === id) invite.remove();
+  });
   socket.on('friend:challenge:declined',who=>{toast(`${who.name||'Dein Freund'} hat die Einladung abgelehnt.`);});
   socket.on('pvp:started',snapshot=>enterPvpMatch(snapshot));
   socket.on('pvp:state',snapshot=>updatePvpState(snapshot));
   socket.on('pvp:attack-result',result=>handlePvpAttack(result));
   socket.on('pvp:blast',blast=>{if(match?.mode==='pvp'&&!match.over){match.blasts.push({...blast,t:0});playSound('blast');}});
   socket.on('pvp:finished',result=>showPvpResult(result));
-  socket.on('disconnect',()=>{if(match?.mode==='pvp')showPvpResult({ reason:'connection-lost' });});
+  socket.on('disconnect',()=>{unavailable();if(match?.mode==='pvp')showPvpResult({ reason:'connection-lost' });});
+  socket.connect();
+}
+function resumeArena() {
+  if (!currentUser || offlineMode) return;
+  if (!socket) return setupSocket();
+  if (socket.connected) socket.emit('friends:sync');
+  else socket.connect();
+}
+function bindRoster() {
+  document.querySelector('[data-retry-list]')?.addEventListener('click', () => refreshFriends(true));
+  document.querySelector('[data-reconnect]')?.addEventListener('click', () => {
+    resumeArena();
+    refreshFriends(true);
+  });
+  document.querySelectorAll('[data-friend-accept]').forEach(el=>el.addEventListener('click',async()=>{el.disabled=true;try{await api('/api/friends/accept',{method:'POST',body:JSON.stringify({friendId:el.dataset.friendAccept})});friendData.loaded=false;await refreshFriends(true);toast('Freund hinzugefügt.');}catch(error){el.disabled=false;toast(error.message);}}));
+  document.querySelectorAll('[data-friend-decline]').forEach(el=>el.addEventListener('click',async()=>{el.disabled=true;try{await api('/api/friends/decline',{method:'POST',body:JSON.stringify({friendId:el.dataset.friendDecline})});friendData.loaded=false;await refreshFriends(true);}catch(error){el.disabled=false;toast(error.message);}}));
+  document.querySelectorAll('[data-challenge]').forEach(el=>el.addEventListener('click',()=>challengeFriend(el.dataset.challenge)));
+}
+function redrawRoster() {
+  const roster = document.querySelector('#duel-roster');
+  if (page !== 'friends' || !roster || offlineMode) return;
+  const template = document.createElement('template');
+  template.innerHTML = friendsPage();
+  roster.replaceChildren(...template.content.querySelector('#duel-roster').childNodes);
+  bindRoster();
 }
 async function refreshFriends(force=false) {
-  if (!currentUser||friendData.loading||(!force&&friendData.loaded)) return;
+  if (!currentUser || (!force && friendData.loaded)) return;
+  if (friendData.loading) { rosterRefreshQueued ||= force; return; }
+  const accountId = currentUser.id;
   friendData.loading=true;
   try {
-    const result=await api('/api/friends');friendData.friends=result.friends||[];friendData.incoming=result.incoming||[];friendData.outgoing=result.outgoing||[];friendData.loaded=true;
-  } catch(error) { if(page==='friends')toast(error.message); }
-  finally { friendData.loading=false;if(page==='friends'){app.innerHTML=pageShell(friendsPage());bind();} }
+    const result=await api('/api/friends');
+    if (currentUser?.id !== accountId) return;
+    friendData.friends=result.friends||[];friendData.incoming=result.incoming||[];friendData.outgoing=result.outgoing||[];friendData.loaded=true;
+    friendData.error='';
+  } catch(error) { if(currentUser?.id===accountId) friendData.error=error.message; }
+  finally {
+    friendData.loading=false;
+    redrawRoster();
+    if (rosterRefreshQueued) { rosterRefreshQueued=false; refreshFriends(true); }
+  }
 }
 async function refreshLeaderboard(){
   if(!currentUser||leaderboardData.loading||leaderboardData.loaded)return;
@@ -759,7 +828,7 @@ async function showUpdateVlog(){
 function showIncomingChallenge(invite) {
   const root=document.querySelector('#overlay-root');if(!root||page==='match')return;
   const chosenMode=duelModes.find(item=>item.id===invite.mode)||duelModes[1];
-  root.innerHTML=`<div class="overlay"><section class="detail-modal challenge-modal" role="dialog" aria-modal="true"><div class="friend-avatar challenge-avatar">${clean((invite.fromName||'F').slice(0,1).toUpperCase())}</div><div class="eyebrow">1-GEGEN-1-EINLADUNG</div><h2>${clean(invite.fromName||'Ein Freund')} fordert dich heraus</h2><p>${clean(chosenMode.name)} · ${clean(chosenMode.desc)}</p><button class="button full" data-challenge-accept>Herausforderung annehmen <span>⚔</span></button><button class="button ghost full" data-challenge-decline>Ablehnen</button></section></div>`;
+  root.innerHTML=`<div class="overlay" data-invite-id="${clean(invite.id)}"><section class="detail-modal challenge-modal" role="dialog" aria-modal="true"><div class="friend-avatar challenge-avatar">${clean((invite.fromName||'F').slice(0,1).toUpperCase())}</div><div class="eyebrow">1-GEGEN-1-EINLADUNG</div><h2>${clean(invite.fromName||'Ein Freund')} fordert dich heraus</h2><p>${clean(chosenMode.name)} · ${clean(chosenMode.desc)}</p><button class="button full" data-challenge-accept>Herausforderung annehmen <span>⚔</span></button><button class="button ghost full" data-challenge-decline>Ablehnen</button></section></div>`;
   root.querySelector('[data-challenge-accept]').addEventListener('click',async event=>{
     const button=event.currentTarget;
     button.disabled=true;
@@ -779,6 +848,7 @@ async function challengeFriend(friendId) {
 function go(next) {
   if (page === 'match' && next !== 'match') return showLeaveRoundConfirm();
   if (next === 'leaderboard') leaderboardData.loaded = false;
+  if (next === 'friends') { friendData.loaded = false; resumeArena(); }
   page=next;
   window.scrollTo({top:0,behavior:'instant'});
   render();
@@ -791,9 +861,7 @@ function bind() {
   document.querySelectorAll('[data-auth-mode]').forEach(el=>el.addEventListener('click',()=>{authMode=el.dataset.authMode;authError='';render();}));
   const friendForm=document.querySelector('#friend-add-form');
   if(friendForm)friendForm.addEventListener('submit',async e=>{e.preventDefault();const message=document.querySelector('#friend-form-message'),button=friendForm.querySelector('button[type="submit"]');button.disabled=true;if(message)message.textContent='';try{const result=await api('/api/friends/request',{method:'POST',body:JSON.stringify({username:friendForm.elements.username.value.trim()})});friendForm.reset();if(message)message.textContent=result.accepted?'Anfrage angenommen. Ihr seid jetzt befreundet.':'Freundschaftsanfrage gesendet.';await refreshFriends(true);}catch(error){if(message)message.textContent=error.message;}finally{button.disabled=false;}});
-  document.querySelectorAll('[data-friend-accept]').forEach(el=>el.addEventListener('click',async()=>{el.disabled=true;try{await api('/api/friends/accept',{method:'POST',body:JSON.stringify({friendId:el.dataset.friendAccept})});friendData.loaded=false;await refreshFriends(true);toast('Freund hinzugefügt.');}catch(error){el.disabled=false;toast(error.message);}}));
-  document.querySelectorAll('[data-friend-decline]').forEach(el=>el.addEventListener('click',async()=>{el.disabled=true;try{await api('/api/friends/decline',{method:'POST',body:JSON.stringify({friendId:el.dataset.friendDecline})});friendData.loaded=false;await refreshFriends(true);}catch(error){el.disabled=false;toast(error.message);}}));
-  document.querySelectorAll('[data-challenge]').forEach(el=>el.addEventListener('click',()=>challengeFriend(el.dataset.challenge)));
+  bindRoster();
   document.querySelector('#duel-mode')?.addEventListener('change',event=>{duelMode=duelModes.some(item=>item.id===event.target.value)?event.target.value:'standard';});
   document.querySelectorAll('[data-hair]').forEach(el=>el.addEventListener('click',()=>{profile.hair=el.dataset.hair;save();render();}));
   document.querySelectorAll('[data-hair-style]').forEach(el=>el.addEventListener('click',()=>{profile.hairStyle=el.dataset.hairStyle;save();render();}));
@@ -813,7 +881,7 @@ function bind() {
   document.querySelectorAll('[data-buy]').forEach(el=>el.addEventListener('click',()=>buy(el.dataset.buy,el.dataset.kind)));
   document.querySelectorAll('[data-skill]').forEach(el=>el.addEventListener('click',()=>showSkillInfo(el.dataset.skill)));
   document.querySelectorAll('[data-claim-quest]').forEach(el=>el.addEventListener('click',()=>claimQuest(el.dataset.claimQuest)));
-  document.querySelectorAll('[data-claim-weapon-quest]').forEach(el=>el.addEventListener('click',()=>claimWeaponQuest(el.dataset.claimWeaponQuest)));
+  document.querySelectorAll('[data-claim-weapon-quest]').forEach(el=>el.addEventListener('click',()=>claimGearQuest(el.dataset.claimWeaponQuest)));
   document.querySelectorAll('[data-pass-claim]').forEach(el=>el.addEventListener('click',()=>claimPass(Number(el.dataset.passClaim))));
   document.querySelectorAll('[data-toggle]').forEach(el=>el.addEventListener('click',()=>{profile[el.dataset.toggle]=!profile[el.dataset.toggle];save();if(el.dataset.toggle==='musicEnabled')startAudio();render();}));
   document.querySelectorAll('[data-theme-choice]').forEach(el=>el.addEventListener('click',()=>{profile.theme=el.dataset.themeChoice;save();render();}));
@@ -830,44 +898,83 @@ function bind() {
     joystick.addEventListener('pointercancel',reset);joystick.addEventListener('lostpointercapture',reset);
   }
   const aimPad=document.querySelector('#aim-joystick-area'),aimKnob=document.querySelector('#aim-joystick-knob');
-  if(aimPad&&aimKnob){
-    let pointerId=null;
-    const reset=()=>{pointerId=null;if(match)match.aimJoystick={x:0,y:0};aimKnob.style.left='50%';aimKnob.style.top='50%';};
-    const update=e=>{const base=aimPad.querySelector('.aim-base'),rect=base.getBoundingClientRect(),cx=rect.left+rect.width/2,cy=rect.top+rect.height/2,limit=rect.width*.28;let dx=e.clientX-cx,dy=e.clientY-cy,len=Math.hypot(dx,dy);if(len>limit){dx=dx/len*limit;dy=dy/len*limit;}if(match){match.aimJoystick={x:dx/limit,y:dy/limit};match.player.aimX=dx/limit;match.player.aimY=dy/limit;match.player.aimFromPointer=false;}aimKnob.style.left=(50+dx/rect.width*100)+'%';aimKnob.style.top=(50+dy/rect.height*100)+'%';};
-    aimPad.addEventListener('pointerdown',e=>{e.preventDefault();pointerId=e.pointerId;aimPad.setPointerCapture(pointerId);update(e);});
-    aimPad.addEventListener('pointermove',e=>{if(e.pointerId===pointerId){e.preventDefault();update(e);}});
-    aimPad.addEventListener('pointerup',e=>{
-      if(e.pointerId!==pointerId)return;
-      if(Math.hypot(match?.aimJoystick?.x||0,match?.aimJoystick?.y||0)>.18)attack();
+  const arena = document.querySelector('#arena');
+  if (aimPad && aimKnob && arena) {
+    const base = aimPad.querySelector('.aim-base');
+    const reset = () => {
+      match.aimGesture = null;
+      match.aimJoystick = {x:0, y:0};
+      match.manualAim = false;
+      aimKnob.style.left = aimKnob.style.top = '50%';
+    };
+    const update = event => {
+      const gesture = match?.aimGesture;
+      if (!gesture || gesture.id !== event.pointerId || match.paused || match.over) return;
+      const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 7) return;
+      match.manualAim = true;
+      const rect = arena.getBoundingClientRect();
+      const x = dx / rect.width, y = dy / rect.height, size = Math.hypot(x, y);
+      match.aimJoystick = {x:x/size, y:y/size};
+      const offset = Math.min(28, length / base.clientWidth * 100);
+      aimKnob.style.left = (50 + dx/length * offset) + '%';
+      aimKnob.style.top = (50 + dy/length * offset) + '%';
+    };
+    aimPad.addEventListener('pointerdown', event => {
+      if (!match || match.over || match.paused || match.aimGesture || event.button !== 0) return;
+      event.preventDefault();
+      match.aimGesture = {id:event.pointerId, x:event.clientX, y:event.clientY};
+      aimPad.setPointerCapture(event.pointerId);
+    });
+    aimPad.addEventListener('pointermove', update);
+    aimPad.addEventListener('pointerup', event => {
+      if (match?.aimGesture?.id !== event.pointerId) return;
+      update(event);
+      attack(!match.manualAim);
       reset();
     });
-    aimPad.addEventListener('pointercancel',reset);aimPad.addEventListener('lostpointercapture',reset);
+    for (const type of ['pointercancel','lostpointercapture']) {
+      aimPad.addEventListener(type, event => { if (match?.aimGesture?.id === event.pointerId) reset(); });
+    }
   }
-  const arena=document.querySelector('#arena');
-  const aimAtPointer=event=>{
-    if(event.pointerType==='touch'||!match||match.paused)return;
-    const rect=arena.getBoundingClientRect(),p=match.player,dx=(event.clientX-rect.left)/rect.width-p.x,dy=(event.clientY-rect.top)/rect.height-p.y,len=Math.hypot(dx,dy);
-    if(len>.008){p.aimX=dx/len;p.aimY=dy/len;p.aimFromPointer=true;}
-  };
-  arena?.addEventListener('pointermove',aimAtPointer);
-  arena?.addEventListener('pointerdown',event=>{if(event.pointerType!=='touch'&&event.button===0){aimAtPointer(event);attack();}});
-  document.querySelectorAll('[data-action="attack"]').forEach(el=>{
-    el.addEventListener('pointerdown',e=>{e.preventDefault();attack();});
-  });
+  if (arena) {
+    const point = event => {
+      const rect = arena.getBoundingClientRect(), player = match.player;
+      const dx = (event.clientX-rect.left)/rect.width-player.x, dy = (event.clientY-rect.top)/rect.height-player.y;
+      const length = Math.hypot(dx, dy);
+      if (length) { player.aimX=dx/length; player.aimY=dy/length; player.aimFromPointer=true; }
+    };
+    arena.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'touch' || event.button !== 0 || match.paused || match.over || match.aimGesture) return;
+      match.aimGesture = {id:event.pointerId};
+      arena.setPointerCapture(event.pointerId);
+      match.manualAim = true;
+      point(event);
+    });
+    arena.addEventListener('pointermove', event => { if(match?.aimGesture?.id === event.pointerId) point(event); });
+    const finish = event => {
+      if (match?.aimGesture?.id !== event.pointerId) return;
+      if (event.type === 'pointerup') { point(event); attack(); }
+      match.manualAim=false;
+      match.aimGesture=null;
+    };
+    for (const type of ['pointerup','pointercancel','lostpointercapture']) arena.addEventListener(type, finish);
+  }
   document.querySelectorAll('[data-action="dodge"]').forEach(el=>el.addEventListener('pointerdown',e=>{e.preventDefault();dodge();}));
   if(page==='match') bindKeyboard();
 }
 
 function buy(name,kind) {
   const item=[...weapons,...armors,...boots,...cosmetics].find(x=>x.name===name);
-  if(!item||profile.coins<item.price||profile.owned.includes(name))return;
+  if(!item||rewardQuest(name)||!Number.isFinite(item.price)||profile.coins<item.price||profile.owned.includes(name))return;
   profile.coins-=item.price;
   profile.owned.push(name);
   if(kind==='weapon'){
     profile.weapon=name;
     profile.weaponSources[name]='shop';
   }
-  if(kind==='armor')profile.armor=name;
+  if(kind==='armor'){profile.armor=name;profile.weaponSources[name]='shop';}
   if(kind==='boots')profile.boots=name;
   save();render();playSound('buy');toast(`${name} gekauft!`);
 }
@@ -893,7 +1000,7 @@ function claimPass(i) {
 }
 function action(id) {
   if(id==='start-round') startRound();
-  if(id==='attack') attack();
+  if(id==='attack') attack(true);
   if(id==='reload') reloadWeapon();
   if(id==='dodge') dodge();
   if(id==='pause-round') showPauseMenu();
@@ -907,7 +1014,7 @@ function action(id) {
 }
 function showPauseMenu(){
   if(!match||match.over||match.paused)return;
-  match.paused=true;match.keys.clear();match.joystick={x:0,y:0};
+  match.paused=true;match.keys.clear();match.joystick={x:0,y:0};match.aimGesture=null;match.manualAim=false;match.aimJoystick={x:0,y:0};
   const root=document.querySelector('#overlay-root');if(!root)return;
   if(match.mode==='pvp')socket?.emit('pvp:input',{x:0,y:0});
   root.innerHTML=`<div class="overlay pause-overlay"><section class="detail-modal pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="pause-mark">Ⅱ</div><div class="eyebrow">ARENA PAUSIERT</div><h2 id="pause-title">Kurze Pause?</h2><p>${match.mode==='pvp'?'Deine Steuerung pausiert. Dein Gegner kann währenddessen weiterspielen.':'Die Runde steht still. Du kannst jederzeit weiterspielen.'}</p><button class="button full" data-pause-resume>Weiter spielen <span>▶</span></button><button class="button ghost full" data-pause-end>${match.mode==='pvp'?'Kampf verlassen':'Runde beenden'}</button></section></div>`;
@@ -916,7 +1023,7 @@ function showPauseMenu(){
 }
 function showLeaveRoundConfirm(fromPause=false){
   if(!match||match.over)return;
-  const returnToPause=fromPause||match.paused;match.paused=true;match.keys.clear();match.joystick={x:0,y:0};
+  const returnToPause=fromPause||match.paused;match.paused=true;match.keys.clear();match.joystick={x:0,y:0};match.aimGesture=null;match.manualAim=false;match.aimJoystick={x:0,y:0};
   if(match.mode==='pvp')socket?.emit('pvp:input',{x:0,y:0});
   const root=document.querySelector('#overlay-root');if(!root)return;
   root.innerHTML='<div class="overlay pause-overlay"><section class="detail-modal pause-modal warning-modal" role="dialog" aria-modal="true" aria-labelledby="leave-title"><div class="warning-mark">!</div><div class="eyebrow">RUNDE ABBRECHEN</div><h2 id="leave-title">Runde wirklich beenden?</h2><p>Der Kampf wird abgebrochen. Belohnungen für diese Runde erhältst du nicht.</p><button class="button full danger-button" data-confirm-leave>Ja, Runde beenden</button><button class="button ghost full" data-cancel-leave></button></section></div>';
@@ -972,20 +1079,20 @@ async function logout() {
   currentUser=null;profile=null;profileSync=null;friendData.friends=[];friendData.incoming=[];friendData.outgoing=[];friendData.online.clear();friendData.loaded=false;
   leaderboardData.players=[];leaderboardData.loaded=false;page='hub';authMode='login';authError='';render();
 }
-function claimWeaponQuest(id) {
-  const quest = weaponQuests.find(entry=>entry.id===id);
-  if (!quest || profile.weaponQuestClaims.includes(id) || !quest.goals.every(goal=>weaponQuestProgress(goal)===goal.count)) return;
+function claimGearQuest(id) {
+  const quest = gearQuests.find(entry=>entry.id===id);
+  if (!quest || profile.weaponQuestClaims.includes(id) || !quest.goals.every(goal=>gearQuestProgress(goal)===goal.count)) return;
   profile.weaponQuestClaims.push(id);
-  const newWeapon = !profile.owned.includes(quest.weapon);
-  if (newWeapon) {
-    profile.owned.push(quest.weapon);
-    profile.weaponSources[quest.weapon] = id;
+  const newlyOwned = !profile.owned.includes(quest.reward);
+  if (newlyOwned) {
+    profile.owned.push(quest.reward);
+    profile.weaponSources[quest.reward] = id;
   }
   addXp(quest.xp);
   save();
   render();
   playSound('reward');
-  toast(newWeapon ? `${quest.weapon} · +${quest.xp} XP` : `${quest.title} · +${quest.xp} XP`);
+  toast(newlyOwned ? `${quest.reward} · +${quest.xp} XP` : `${quest.title} · +${quest.xp} XP`);
 }
 function spin() {
   if(profile.daily.claims.includes('wheel'))return;
@@ -1076,7 +1183,7 @@ function handlePvpAttack(result) {
 }
 function showPvpResult(result) {
   if(!match||match.mode!=='pvp'||match.over)return;
-  match.over=true;match.keys.clear();match.joystick={x:0,y:0};stopLoop();
+  match.over=true;match.keys.clear();match.joystick={x:0,y:0};match.aimGesture=null;match.manualAim=false;match.aimJoystick={x:0,y:0};stopLoop();
   const won=result.winnerId===currentUser?.id,draw=!result.winnerId;
   if(won)leaderboardData.loaded=false;
   const title=draw?'Runde beendet':won?'Du hast gewonnen!':'Dein Freund gewinnt';
@@ -1091,12 +1198,12 @@ function bindKeyboard() {
 function keyDown(e) {
   const map={ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};
   if(map[e.key]&&match&&!match.paused){e.preventDefault();match.keys.add(map[e.key]);}
-  if((e.code==='Space'||e.key===' ')&&page==='match'){e.preventDefault();attack();}
+  if((e.code==='Space'||e.key===' ')&&page==='match'){e.preventDefault();attack(!match.manualAim);}
   if(e.key==='r'||e.key==='R'){if(page==='match'){e.preventDefault();reloadWeapon();}}
   if((e.key==='Shift'||e.code==='ShiftLeft'||e.code==='ShiftRight')&&page==='match'){e.preventDefault();dodge();}
 }
 function keyUp(e) { const map={ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};if(map[e.key])match?.keys.delete(map[e.key]); }
-function pauseWhenHidden() { if(document.hidden&&page==='match'&&match){match.keys.clear();match.joystick={x:0,y:0};if(match.mode==='pvp')socket?.emit('pvp:input',{x:0,y:0});} }
+function pauseWhenHidden() { if(document.hidden&&page==='match'&&match){match.keys.clear();match.joystick={x:0,y:0};match.aimGesture=null;match.manualAim=false;match.aimJoystick={x:0,y:0};if(match.mode==='pvp')socket?.emit('pvp:input',{x:0,y:0});} }
 function startLoop() {
   if(loopId)return;
   const canvas=document.querySelector('#arena');if(!canvas||!match)return;
@@ -1235,12 +1342,19 @@ function dodge(){
     const step=.012*currentBoots().speed;
     for(let i=0;i<10;i++)Object.assign(p,moveWithCover(match.map,p.x,p.y,dx*step,dy*step,.022));
   }
-  p.faceX=dx;p.faceY=dy;p.dodgeTime=.43;p.dodgeCd=Math.max(1.25,2.35-(profile.skills.dodge||0)*.28);playSound('dodge');
+  p.faceX=dx;p.faceY=dy;p.dodgeTime=.43;p.dodgeCd=Math.max(1.25,2.35-(profile.skills.dodge||0)*.28)*(currentArmor().dodgeFactor||1);playSound('dodge');
   if(match.mode==='pvp')socket?.emit('pvp:dodge',{x:dx,y:dy},result=>{if(result?.error){p.dodgeCd=0;toast(result.error);}});
 }
 function drawWeapon(ctx,model,scale=1){
   ctx.save();ctx.scale(scale,scale);ctx.lineCap='round';ctx.lineJoin='round';
-  if(model==='blaster'||model==='rifle'||model==='launcher'){
+  if (forgeDesigns[model]) {
+    ctx.translate(-50,-36);
+    for (const [color,d] of forgeDesigns[model]) {
+      const shape = new Path2D(d);
+      ctx.fillStyle=color; ctx.strokeStyle='#484550'; ctx.lineWidth=1.5;
+      ctx.fill(shape); ctx.stroke(shape);
+    }
+  } else if(model==='blaster'||model==='rifle'||model==='launcher'){
     const body=model==='launcher'?'#a77b55':model==='rifle'?'#576576':'#637f94',metal='#d2d9df';
     ctx.fillStyle=body;ctx.strokeStyle='#303944';ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(-6,-23,12,38,4);ctx.fill();ctx.stroke();
     ctx.fillStyle=metal;ctx.beginPath();ctx.roundRect(-3,-39,6,19,2);ctx.fill();ctx.fillStyle='#303944';ctx.beginPath();ctx.roundRect(-4,12,8,12,3);ctx.fill();
@@ -1258,7 +1372,7 @@ function drawFighter(ctx,x,y,p,w,h){
   ctx.save();ctx.translate(-6,5);ctx.rotate(stride*.025);ctx.beginPath();ctx.roundRect(-5,-3,9,22,4);ctx.fill();ctx.fillStyle=bootColor;ctx.beginPath();ctx.roundRect(-7,15,14,8,4);ctx.fill();ctx.restore();
   ctx.fillStyle='#354356';ctx.save();ctx.translate(6,5);ctx.rotate(-stride*.025);ctx.beginPath();ctx.roundRect(-4,-3,9,22,4);ctx.fill();ctx.fillStyle=bootColor;ctx.beginPath();ctx.roundRect(-2,15,14,8,4);ctx.fill();ctx.restore();
   const armor=currentArmor();ctx.fillStyle=profile.cosmetics.body==='Sternen-Hoodie'?'#37465a':profile.cosmetics.body==='Nebeljacke'?'#b7c1c9':'#e7ebef';ctx.strokeStyle='#788593';ctx.lineWidth=1.5;ctx.beginPath();ctx.roundRect(-17,-16,34,26,9);ctx.fill();ctx.stroke();ctx.fillStyle='rgba(255,255,255,.38)';ctx.beginPath();ctx.ellipse(-7,-8,5,9,-.4,0,Math.PI*2);ctx.fill();
-  if(armor.model!=='vest'){ctx.fillStyle=armor.model==='leather'?'#8b6650':armor.model==='shadow'?'#3a3d45':'#a8b2bd';ctx.strokeStyle=armor.model==='leather'?'#624839':'#66727f';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-14,-14);ctx.lineTo(-5,-10);ctx.lineTo(0,-14);ctx.lineTo(5,-10);ctx.lineTo(14,-14);ctx.lineTo(16,3);ctx.lineTo(8,9);ctx.lineTo(-8,9);ctx.lineTo(-16,3);ctx.closePath();ctx.fill();ctx.stroke();ctx.strokeStyle='rgba(255,255,255,.5)';ctx.beginPath();ctx.moveTo(0,-10);ctx.lineTo(0,6);ctx.stroke();}
+  if(armor.model!=='vest'){ctx.fillStyle=armor.color || (armor.model==='leather'?'#8b6650':armor.model==='shadow'?'#3a3d45':'#a8b2bd');ctx.strokeStyle=armor.model==='leather'?'#624839':'#66727f';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-14,-14);ctx.lineTo(-5,-10);ctx.lineTo(0,-14);ctx.lineTo(5,-10);ctx.lineTo(14,-14);ctx.lineTo(16,3);ctx.lineTo(8,9);ctx.lineTo(-8,9);ctx.lineTo(-16,3);ctx.closePath();ctx.fill();ctx.stroke();ctx.strokeStyle='rgba(255,255,255,.5)';ctx.beginPath();ctx.moveTo(0,-10);ctx.lineTo(0,6);ctx.stroke();}
   ctx.fillStyle=skinColor;ctx.beginPath();ctx.roundRect(-22,-11,8,18,5);ctx.roundRect(14,-11,8,18,5);ctx.fill();
   ctx.fillStyle=skinColor;ctx.beginPath();ctx.ellipse(0,-26,14,16,0,0,Math.PI*2);ctx.fill();
   const hairColor=swatches.includes(profile.hair)?profile.hair:swatches[0];ctx.fillStyle=hairColor;
@@ -1296,7 +1410,7 @@ function drawRemoteFighter(ctx,x,y,p){
   ctx.save();ctx.translate(x,y+bob);ctx.fillStyle='rgba(15,22,30,.18)';ctx.beginPath();ctx.ellipse(0,21,18,7,0,0,Math.PI*2);ctx.fill();
   for(const side of [-1,1]){ctx.save();ctx.translate(side*6,5);ctx.rotate(side*stride*.025);ctx.fillStyle='#354356';ctx.beginPath();ctx.roundRect(-5,-3,9,22,4);ctx.fill();ctx.fillStyle=p.feetModel==='shoes'?'#e4ebf1':p.bootsModel==='storm'?'#7b7791':p.bootsModel==='light'?'#9db0ba':'#806c5e';ctx.beginPath();ctx.roundRect(side<0?-7:-2,15,14,8,4);ctx.fill();ctx.restore();}
   ctx.fillStyle=p.bodyModel==='hoodie'?'#37465a':p.bodyModel==='jacket'?'#b7c1c9':'#e7ebef';ctx.strokeStyle='#788593';ctx.lineWidth=1.5;ctx.beginPath();ctx.roundRect(-17,-16,34,26,9);ctx.fill();ctx.stroke();
-  if(p.armorModel&&p.armorModel!=='vest'){ctx.fillStyle=p.armorModel==='leather'?'#8b6650':p.armorModel==='shadow'?'#3a3d45':'#a8b2bd';ctx.strokeStyle='#66727f';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-14,-14);ctx.lineTo(-5,-10);ctx.lineTo(0,-14);ctx.lineTo(5,-10);ctx.lineTo(14,-14);ctx.lineTo(16,3);ctx.lineTo(8,9);ctx.lineTo(-8,9);ctx.lineTo(-16,3);ctx.closePath();ctx.fill();ctx.stroke();}
+  if(p.armorModel&&p.armorModel!=='vest'){ctx.fillStyle=armors.find(item=>item.model===p.armorModel)?.color || (p.armorModel==='leather'?'#8b6650':p.armorModel==='shadow'?'#3a3d45':'#a8b2bd');ctx.strokeStyle='#66727f';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-14,-14);ctx.lineTo(-5,-10);ctx.lineTo(0,-14);ctx.lineTo(5,-10);ctx.lineTo(14,-14);ctx.lineTo(16,3);ctx.lineTo(8,9);ctx.lineTo(-8,9);ctx.lineTo(-16,3);ctx.closePath();ctx.fill();ctx.stroke();}
   ctx.fillStyle=skin;ctx.beginPath();ctx.roundRect(-22,-11,8,18,5);ctx.roundRect(14,-11,8,18,5);ctx.fill();ctx.beginPath();ctx.ellipse(0,-26,14,16,0,0,Math.PI*2);ctx.fill();
   ctx.fillStyle=hair;
   if(p.hairStyle==='long'||p.hairStyle==='bob'){ctx.beginPath();ctx.roundRect(-15,-39,7,p.hairStyle==='long'?48:28,4);ctx.roundRect(8,-39,7,p.hairStyle==='long'?48:28,4);ctx.fill();}
@@ -1325,10 +1439,12 @@ function drawArena(ctx,w,h) {
   ctx.fillStyle=dark?'rgba(255,255,255,.045)':'rgba(255,255,255,.35)';ctx.beginPath();ctx.ellipse(w*.5,h*.52,w*.12,h*.09,0,0,Math.PI*2);ctx.fill();
   ctx.fillStyle=dark?'rgba(255,255,255,.06)':'rgba(50,55,60,.09)';ctx.font='800 11px Manrope,sans-serif';ctx.textAlign='left';ctx.fillText(m.map?.name||'Arena',24,32);
   for(const [cx,cy,cw,ch] of (m.map?.cover||[])){const x=cx*w,y=cy*h,bw=cw*w,bh=ch*h;ctx.fillStyle='rgba(20,24,30,.2)';ctx.beginPath();ctx.roundRect(x+3,y+6,bw,bh,8);ctx.fill();ctx.fillStyle=dark?'#51555a':m.map?.trim||'#b1a187';ctx.strokeStyle=dark?'#777b80':'#8e8071';ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(x,y,bw,bh,8);ctx.fill();ctx.stroke();ctx.fillStyle=dark?'rgba(255,255,255,.12)':'rgba(255,255,255,.42)';ctx.beginPath();ctx.roundRect(x+5,y+4,bw-10,Math.max(4,bh*.18),4);ctx.fill();}
-  const aim=aimVector(),weapon=arenaWeapon(),angle=Math.atan2(aim.y,aim.x);
-  const reach=weapon.range+(weapon.ammo||m.mode==='pvp'?0:(profile.skills.focus||0)*.015);
-  const spread=weapon.ammo ? .15 : Math.acos(.62);
-  ctx.save();ctx.translate(p.x*w,p.y*h);ctx.fillStyle='rgba(247,211,118,.19)';ctx.strokeStyle='rgba(224,172,68,.66)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,0);ctx.ellipse(0,0,reach*w,reach*h,0,angle-spread,angle+spread);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+  if (m.manualAim && !m.paused && !m.over) {
+    const aim=aimVector(),weapon=arenaWeapon(),angle=Math.atan2(aim.y,aim.x);
+    const reach=weapon.range+(weapon.ammo||m.mode==='pvp'?0:(profile.skills.focus||0)*.015);
+    const spread=weapon.ammo ? .15 : Math.acos(.62);
+    ctx.save();ctx.translate(p.x*w,p.y*h);ctx.fillStyle='rgba(247,211,118,.19)';ctx.strokeStyle='rgba(224,172,68,.66)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,0);ctx.ellipse(0,0,reach*w,reach*h,0,angle-spread,angle+spread);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+  }
   m.blasts?.forEach(blast=>{ctx.globalAlpha=Math.max(0,1-blast.t/.35);ctx.fillStyle='rgba(255,175,89,.35)';ctx.strokeStyle='rgba(255,218,150,.85)';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(blast.x*w,blast.y*h,w*blast.r,h*blast.r,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.globalAlpha=1;});
   m.pickups?.forEach(item=>{const x=item.x*w,y=item.y*h+Math.sin(item.t*5)*3;ctx.fillStyle='rgba(22,27,33,.22)';ctx.beginPath();ctx.ellipse(x,y+10,12,4,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#eac56b';ctx.strokeStyle='#996f2c';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#fff2c6';ctx.beginPath();ctx.arc(x-2,y-2,2,0,Math.PI*2);ctx.fill();ctx.fillStyle=dark?'#fff':'#40331d';ctx.font='800 9px Manrope,sans-serif';ctx.textAlign='center';ctx.fillText(item.value,x,y-14);});
   m.enemies.forEach(e=>{if(e.hp<=0)return;drawEnemy(ctx,e,e.x*w,e.y*h);});
@@ -1367,13 +1483,27 @@ function reloadWeapon(){
   if(p.magazine>=weapon.ammo.mag||p.ammo<=0)return toast(p.ammo<=0?'Keine Reservemunition mehr.':'Magazin ist voll.');
   playSound('reload');
   if(match.mode==='pvp')socket?.emit('pvp:reload',{},result=>{if(result?.error)toast(result.error);});
-  else p.reloadingUntil=match.elapsed+weapon.ammo.reload;
+  else p.reloadingUntil=match.elapsed+weapon.ammo.reload*(currentArmor().reloadFactor||1);
 }
-function attack() {
+function quickAim() {
+  const player = match.player;
+  const targets = match.mode === 'pvp' ? [match.remotePlayer] : match.enemies;
+  let nearest = Infinity, direction = aimVector();
+  for (const target of targets) {
+    if (!target || target.hp <= 0 || coverBetween(match.map, player, target)) continue;
+    const dx = target.x-player.x, dy = target.y-player.y, distance = Math.hypot(dx,dy);
+    if (distance > 0 && distance < nearest) {
+      nearest = distance;
+      direction = {x:dx/distance, y:dy/distance};
+    }
+  }
+  return direction;
+}
+function attack(automatic = false) {
   if(!match||match.over||match.paused||match.player.attackCd>0)return;
   const p=match.player,weapon=arenaWeapon();
   if(p.reloadingUntil){return;}
-  const aim=aimVector();p.aimX=aim.x;p.aimY=aim.y;p.faceX=aim.x;p.faceY=aim.y;
+  const aim=automatic ? quickAim() : aimVector();p.aimX=aim.x;p.aimY=aim.y;p.faceX=aim.x;p.faceY=aim.y;
   if(match.mode==='pvp'){
     if(weapon.ammo&&p.magazine<=0){reloadWeapon();return;}
     p.attackCd=weapon.cooldown;p.attackAnim=.22;playSound('attack');
@@ -1409,8 +1539,8 @@ function endRound(won) {
 }
 function showResult(won,xp,coins) {
   const root=document.querySelector('#overlay-root');if(!root)return;
-  const available = weaponQuests.some(quest=>!profile.weaponQuestClaims.includes(quest.id) && quest.goals.every(goal=>weaponQuestProgress(goal)===goal.count));
-  root.innerHTML=`<div class="overlay"><section class="result-card"><div class="result-icon">${won?'🏆':'💫'}</div><div class="eyebrow">${won?'Runde geschafft':'Runde vorbei'}</div><h2 style="margin:8px 0">${won?'Starke Runde!':'Gleich nochmal?'}</h2><p class="muted" style="font-size:11px;line-height:1.6">${won?'Du hast alle drei Wellen überstanden.':'Deine eingesammelten Münzen und dein XP-Fortschritt bleiben erhalten.'}</p><div class="result-rewards">${xp?`<span>+${xp} XP</span>`:''}${coins?`<span>+${coins} ◈ eingesammelt</span>`:''}</div><p class="result-xp">Level ${profile.level} · ${formatXp.format(profile.xp)} / ${formatXp.format(xpForNextLevel(profile.level))} XP</p>${available?'<button class="button ghost full weapon-quest-link" data-result-quests>Waffenquest abholen</button>':''}<button class="button full" data-result="continue">Weiter</button></section></div>`;
+  const available = gearQuests.some(quest=>!profile.weaponQuestClaims.includes(quest.id) && quest.goals.every(goal=>gearQuestProgress(goal)===goal.count));
+  root.innerHTML=`<div class="overlay"><section class="result-card"><div class="result-icon">${won?'🏆':'💫'}</div><div class="eyebrow">${won?'Runde geschafft':'Runde vorbei'}</div><h2 style="margin:8px 0">${won?'Starke Runde!':'Gleich nochmal?'}</h2><p class="muted" style="font-size:11px;line-height:1.6">${won?'Du hast alle drei Wellen überstanden.':'Deine eingesammelten Münzen und dein XP-Fortschritt bleiben erhalten.'}</p><div class="result-rewards">${xp?`<span>+${xp} XP</span>`:''}${coins?`<span>+${coins} ◈ eingesammelt</span>`:''}</div><p class="result-xp">Level ${profile.level} · ${formatXp.format(profile.xp)} / ${formatXp.format(xpForNextLevel(profile.level))} XP</p>${available?'<button class="button ghost full weapon-quest-link" data-result-quests>Questbelohnung abholen</button>':''}<button class="button full" data-result="continue">Weiter</button></section></div>`;
   root.querySelector('[data-result]').addEventListener('click',returnToHub);
   root.querySelector('[data-result-quests]')?.addEventListener('click',()=>{returnToHub();go('quests');});
 }
@@ -1428,11 +1558,11 @@ function normalizeProfile(value,username) {
   next.passXp = value && value.progressionVersion !== PROGRESSION_VERSION ? upgradeLegacyPassXp(count(next.passXp), next.passClaims) : count(next.passXp);
   const claims = new Set(Array.isArray(value?.weaponQuestClaims) ? value.weaponQuestClaims : []);
   if(value?.mainClaimed)claims.add('first-blade');
-  next.weaponQuestClaims = weaponQuests.filter(quest=>claims.has(quest.id)).map(quest=>quest.id);
+  next.weaponQuestClaims = gearQuests.filter(quest=>claims.has(quest.id)).map(quest=>quest.id);
   delete next.mainClaimed;
-  next.weaponSources = Object.fromEntries(weaponQuests
-    .map(quest=>[quest.weapon,value?.weaponSources?.[quest.weapon],quest.id])
-    .filter(([, source, id])=>source==='shop'||source===id)
+  next.weaponSources = Object.fromEntries([...weapons,...armors]
+    .map(item=>[item.name,value?.weaponSources?.[item.name],rewardQuest(item.name)?.id])
+    .filter(([, source, id])=>source==='shop'||(id&&source===id))
     .map(([weapon, source])=>[weapon,source]));
   for(const stat of ['wins','knockouts','hardWins'])next.stats[stat]=count(next.stats[stat]);
   const bossMaps = Array.isArray(next.stats.bossMaps) ? next.stats.bossMaps : [];
@@ -1462,6 +1592,12 @@ setInterval(()=>{
   if (offlineMode) restoreSession();
   else if (profileSync?.pending) syncProfile();
 }, 15000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !offlineMode && currentUser) {
+    resumeArena();
+    if (page === 'friends') refreshFriends(true);
+  }
+});
 document.addEventListener('touchmove',event=>{if(document.body.classList.contains('round-active')&&!event.target.closest('.joystick-area,.aim-joystick-area,.combat-buttons,#arena'))event.preventDefault();},{passive:false});
 render();
 restoreSession();

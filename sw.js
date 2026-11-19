@@ -1,7 +1,7 @@
 'use strict';
 
-const CACHE = 'hero-clash-shell-v5';
-const SHELL = ['/', '/app.js', '/styles.css', '/socket.io/socket.io.js'];
+const CACHE = 'hero-clash-shell-v7';
+const SHELL = ['/', '/app.js', '/equipment.js', '/styles.css', '/socket.io/socket.io.js'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL.map(path => new Request(path, { cache: 'reload' })))).then(() => self.skipWaiting()));
